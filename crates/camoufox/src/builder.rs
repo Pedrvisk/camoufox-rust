@@ -183,10 +183,12 @@ pub async fn prepare(options: &LaunchOptions) -> Result<PreparedLaunch> {
     let mut config: ConfigMap = ConfigMap::new();
     let mut firefox_user_prefs = options.firefox_user_prefs.clone();
 
-    // Validate OS constraints: webgl_config requires OS to be set.
-    if options.os.is_empty() {
-        // unrestricted
+    // Warn on manual config domains (before the fingerprint merge — the
+    // generated config legitimately touches these domains).
+    if !options.i_know_what_im_doing {
+        warn_manual_config(&config);
     }
+
     options.validate_os_list()?;
 
     // Add default addons and validate paths.
@@ -299,11 +301,6 @@ pub async fn prepare(options: &LaunchOptions) -> Result<PreparedLaunch> {
             list
         };
         config.insert("fonts".into(), Value::Array(merged));
-    }
-
-    // Warn on manual config domains.
-    if !options.i_know_what_im_doing {
-        warn_manual_config(&config);
     }
 
     // Proxy URL.

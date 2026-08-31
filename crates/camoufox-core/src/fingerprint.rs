@@ -114,11 +114,16 @@ fn reconcile_with_header_ua(profile: &mut BrowserProfile) {
 
     // platform segment: "(Windows NT 10.0; Win64; x64)", "(X11; Linux x86_64)",
     // "(Macintosh; Intel Mac OS X 10.15)"
+    // The rv token is not part of the platform; it is re-appended below.
     let platform_segment = header_ua
         .split('(')
         .nth(1)
         .and_then(|rest| rest.split(')').next())
         .unwrap_or("")
+        .split("; rv:")
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(';')
         .to_string();
 
     if !platform_segment.is_empty() {
@@ -185,6 +190,12 @@ pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfi
         let header_resolved = header_ua
             .as_deref()
             .is_some_and(|ua| ua.contains("Firefox"));
+        // Desktop-only: reject mobile/tablet UAs (Camoufox is a desktop
+        // browser; a mobile UA with desktop APIs is a detection signal).
+        let desktop = header_ua
+            .as_deref()
+            .is_none_or(|ua| !ua.contains("Mobile") && !ua.contains("Tablet"));
+        let header_resolved = header_resolved && desktop;
         if header_resolved {
             // Keep profile.browser.family consistent with the header UA.
             profile.browser.family = BrowserFamily::Firefox;

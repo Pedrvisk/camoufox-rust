@@ -61,9 +61,14 @@ fn put_str(out: &mut Map<String, Value>, key: &str, value: Option<&str>, ff_vers
 fn put_num(out: &mut Map<String, Value>, key: &str, value: Option<f64>) {
     // Zeros are skipped.
     if let Some(value) = value.filter(|v| *v != 0.0) {
-        if let Some(n) = serde_json::Number::from_f64(value) {
-            out.insert(key.to_string(), Value::Number(n));
-        }
+        let number = if value.fract() == 0.0 && value.abs() < 9.007_199_254_740_992e15 {
+            serde_json::Number::from(value as i64)
+        } else if let Some(n) = serde_json::Number::from_f64(value) {
+            n
+        } else {
+            return;
+        };
+        out.insert(key.to_string(), Value::Number(number));
     }
 }
 
