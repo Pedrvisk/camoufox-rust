@@ -1,0 +1,17 @@
+[package]
+name = "camoufox-geoip"
+description = "GeoIP for camoufox-rust: public IP resolution and MaxMind geolocation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+camoufox-core.workspace = true
+camoufox-pkgman.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+maxminddb.workspace = true
+log.workspace = true

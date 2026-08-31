@@ -1,0 +1,15 @@
+[package]
+name = "camoufox-webgl"
+description = "WebGL fingerprint sampling for camoufox-rust from the embedded SQLite database"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+camoufox-core.workspace = true
+rusqlite = { workspace = true, features = ["serialize"] }
+serde_json.workspace = true
+rand.workspace = true
+tempfile.workspace = true
