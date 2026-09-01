@@ -20,6 +20,7 @@ use camoufox_core::error::{CamoufoxError, Result};
 use tokio::io::AsyncBufReadExt;
 
 /// Timeout for Xvfb writing its display number (prevents infinite hangs).
+#[cfg(target_os = "linux")]
 const DISPLAYFD_READ_TIMEOUT_MS: u64 = 10_000;
 
 /// A managed Xvfb virtual display.
