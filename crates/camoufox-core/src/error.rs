@@ -89,6 +89,18 @@ pub enum CamoufoxError {
     /// `FileNotFoundError` — a required file was not found.
     #[error("{0}")]
     FileNotFound(String),
+    /// A persona definition is invalid.
+    #[error("{0}")]
+    InvalidPersona(String),
+    /// The requested persona was not found in the store.
+    #[error("{0}")]
+    PersonaNotFound(String),
+    /// A storage backend failure (file/sqlite/mysql/s3).
+    #[error("{0}")]
+    Storage(String),
+    /// Juggler driver failure.
+    #[error("{0}")]
+    Juggler(String),
     /// A fingerprint could not be generated.
     #[error("fingerprint generation failed: {0}")]
     Fingerprint(String),
@@ -159,6 +171,10 @@ impl CamoufoxError {
             Self::VirtualDisplayNotSupported(_) => "VirtualDisplayNotSupported",
             Self::CamoufoxNotInstalled(_) => "CamoufoxNotInstalled",
             Self::FileNotFound(_) => "FileNotFoundError",
+            Self::InvalidPersona(_) => "InvalidPersona",
+            Self::PersonaNotFound(_) => "PersonaNotFound",
+            Self::Storage(_) => "StorageError",
+            Self::Juggler(_) => "JugglerError",
             Self::Fingerprint(_) => "FingerprintError",
             Self::Http(_) => "HttpError",
             Self::Download(_) => "DownloadError",

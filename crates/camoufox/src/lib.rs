@@ -13,9 +13,14 @@
 //! The [`PreparedLaunch`] is serializable and integration-friendly: hand its
 //! env vars, user prefs and executable path to any Playwright driver to launch
 //! through the standard automation stack.
+//!
+//! For a fully native automation loop (no Playwright at all), see the
+//! `camoufox-juggler` crate: a Rust client for Firefox's Juggler protocol
+//! that drives the browser over its pipe transport.
 
 pub mod builder;
 pub mod launch;
+pub mod proxyauth;
 
 pub use builder::{prepare, LaunchOptions, PreparedLaunch};
 pub use launch::launch;

@@ -181,7 +181,11 @@ pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfi
         let os = if os_choices.len() == 1 {
             os_choices[0]
         } else {
-            os_choices[rand::thread_rng().gen_range(0..os_choices.len())]
+            match request.seed {
+                // Deterministic OS pick for seeded (persona-stable) requests.
+                Some(seed) => os_choices[(seed.wrapping_add(attempt)) as usize % os_choices.len()],
+                None => os_choices[rand::thread_rng().gen_range(0..os_choices.len())],
+            }
         };
 
         let mut generator = FingerprintGenerator::new()

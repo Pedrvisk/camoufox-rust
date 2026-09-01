@@ -6,7 +6,10 @@ members = [
     "crates/camoufox-geoip",
     "crates/camoufox-webgl",
     "crates/camoufox-virtdisplay",
+    "crates/camoufox-store",
+    "crates/camoufox-juggler",
     "crates/camoufox",
+    "crates/camoufox-cli",
 ]
 
 [workspace.package]
@@ -29,6 +32,9 @@ camoufox-pkgman = { path = "crates/camoufox-pkgman", version = "0.1.0" }
 camoufox-geoip = { path = "crates/camoufox-geoip", version = "0.1.0" }
 camoufox-webgl = { path = "crates/camoufox-webgl", version = "0.1.0" }
 camoufox-virtdisplay = { path = "crates/camoufox-virtdisplay", version = "0.1.0" }
+camoufox-store = { path = "crates/camoufox-store", version = "0.1.0" }
+camoufox-juggler = { path = "crates/camoufox-juggler", version = "0.1.0" }
+camoufox = { path = "crates/camoufox", version = "0.1.0" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "fs", "sync", "io-util"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
@@ -51,6 +57,7 @@ log = "0.4"
 env_logger = "0.11"
 futures-util = "0.3"
 nix = { version = "0.29", features = ["fs", "signal"] }
+async-trait = "0.1"
 
 [profile.release]
 lto = true

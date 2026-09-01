@@ -1,0 +1,42 @@
+[package]
+name = "camoufox-store"
+description = "Pluggable persistence for camoufox personas and sessions: file, SQLite, MySQL and S3 providers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords = ["camoufox", "persona", "storage", "sqlite", "s3"]
+categories = ["web-programming", "database"]
+
+[features]
+default = ["sqlite", "mysql", "s3"]
+sqlite = ["dep:rusqlite"]
+mysql = ["dep:sqlx"]
+s3 = ["dep:hmac", "dep:sha2", "dep:base64"]
+
+[dependencies]
+camoufox-core.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+async-trait.workspace = true
+
+rusqlite = { workspace = true, optional = true }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "mysql"], optional = true }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+base64 = { version = "0.22", optional = true }
+
+[dependencies.reqwest]
+workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lib]
+name = "camoufox_store"

@@ -1,0 +1,33 @@
+[package]
+name = "camoufox-cli"
+description = "CLI for camoufox-rust: fetch/prepare/launch, personas, stores and fingerprint verification"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords = ["camoufox", "antidetect", "fingerprint", "browser", "cli"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "camoufox"
+path = "src/main.rs"
+
+[dependencies]
+camoufox-core.workspace = true
+camoufox-pkgman.workspace = true
+camoufox-geoip.workspace = true
+camoufox.workspace = true
+camoufox-store.workspace = true
+camoufox-juggler.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+log.workspace = true
+env_logger.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

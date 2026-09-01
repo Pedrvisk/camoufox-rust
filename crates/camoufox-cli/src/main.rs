@@ -1,4 +1,4 @@
-//! CLI entry point (`camoufox` binary).
+//! `camoufox` CLI entry point.
 
 mod cli;
 

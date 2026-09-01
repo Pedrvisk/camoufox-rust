@@ -37,11 +37,12 @@ pub enum HeadlessMode {
 /// # Note on authenticated proxies
 ///
 /// Firefox ignores credentials embedded in `--proxy-server`
-/// (`http://user:pass@host:port`); the `username`/`password` fields only take
-/// effect when the launch is driven by an automation stack that injects
-/// proxy authentication (as Playwright does). When using
-/// [`crate::launch::launch`] directly, prefer a proxy without credentials or
-/// one exposed on a local gateway.
+/// (`http://user:pass@host:port`). Two native paths make them work:
+///
+/// - [`crate::launch::launch`] provisions a proxy-auth WebExtension
+///   ([`crate::proxyauth`]) that answers the auth challenge.
+/// - The `camoufox-juggler` driver passes them to `Browser.setBrowserProxy`,
+///   which the Juggler protocol handles natively.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProxyConfig {
     /// Proxy server URL (e.g. `http://host:port`).
@@ -146,6 +147,14 @@ pub struct LaunchOptions {
 
     /// Deterministic fingerprint seed.
     pub fingerprint_seed: Option<u64>,
+
+    /// A persisted persona: its fingerprint is used verbatim (no
+    /// generation) and its Firefox prefs are merged in as defaults.
+    pub persona: Option<camoufox_core::persona::PersonaRecord>,
+
+    /// Reuse a persistent profile directory (cookies, storage and history
+    /// survive across sessions). Defaults to a fresh temp profile.
+    pub persistent_profile: Option<PathBuf>,
 }
 
 /// Everything needed to start the browser, fully resolved.
@@ -226,15 +235,27 @@ pub async fn prepare(options: &LaunchOptions) -> Result<PreparedLaunch> {
             .to_string(),
     };
 
-    // Fingerprint: generate or validate the user-supplied one.
-    let fingerprint = match &options.fingerprint {
-        Some(fingerprint) => {
+    // Fingerprint: persona, user-supplied or generated.
+    let fingerprint = match (&options.persona, &options.fingerprint) {
+        (Some(record), _) => {
+            if !options.i_know_what_im_doing {
+                check_custom_fingerprint(&record.fingerprint)?;
+            }
+            // Persona prefs are defaults: caller prefs win.
+            for (key, value) in &record.firefox_user_prefs {
+                firefox_user_prefs
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
+            record.fingerprint.clone()
+        }
+        (None, Some(fingerprint)) => {
             if !options.i_know_what_im_doing {
                 check_custom_fingerprint(fingerprint)?;
             }
             fingerprint.clone()
         }
-        None => generate_fingerprint(&FingerprintRequest {
+        (None, None) => generate_fingerprint(&FingerprintRequest {
             window: options.window,
             operating_systems: if options.os.is_empty() {
                 None
