@@ -153,6 +153,22 @@ fn reconcile_with_header_ua(profile: &mut BrowserProfile) {
     }
 }
 
+/// Synthesizes a coherent desktop Firefox user agent for the requested OS.
+///
+/// Used when the retry budget is exhausted without the header network
+/// resolving Firefox (rare, but a Chrome user agent inside a Firefox browser
+/// is an immediate detection signal). The `132.0` version segment is a
+/// placeholder: the config converter rewrites `1xx.0` segments to the real
+/// installed Firefox version.
+fn fallback_firefox_ua(os: SupportedOs) -> String {
+    let platform = match os {
+        SupportedOs::Windows => "Windows NT 10.0; Win64; x64",
+        SupportedOs::Macos => "Macintosh; Intel Mac OS X 10.15",
+        SupportedOs::Linux => "X11; Linux x86_64",
+    };
+    format!("Mozilla/5.0 ({platform}; rv:132.0) Gecko/20100101 Firefox/132.0")
+}
+
 /// Generates a Firefox fingerprint.
 pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfile> {
     let os_choices: Vec<SupportedOs> = request
@@ -230,6 +246,15 @@ pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfi
         let screen_exhausted = attempt >= MAX_SCREEN_ATTEMPTS as u64;
 
         if (header_resolved && fits) || (browser_exhausted && fits) || screen_exhausted {
+            if !header_resolved {
+                // Retry budget exhausted without a Firefox header resolution:
+                // synthesize one so the profile is always Firefox-coherent.
+                profile
+                    .headers
+                    .insert("user-agent".to_string(), fallback_firefox_ua(os));
+                profile.browser.family = BrowserFamily::Firefox;
+                reconcile_with_header_ua(&mut profile);
+            }
             let profile = match request.window {
                 Some((width, height)) => handle_window_size(profile, width, height),
                 None => profile,

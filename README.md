@@ -5,18 +5,18 @@ browser. Manages the browser binaries, generates statistically realistic
 Firefox fingerprints, and prepares/launches the browser with full fingerprint,
 locale, geolocation and WebGL spoofing.
 
-Inspired by camoufox-js (https://github.com/apify/camoufox-js) and Camoufox (https://github.com/daijro/camoufox).
+Inspired by [camoufox-js](https://github.com/apify/camoufox-js) and [Camoufox](https://github.com/daijro/camoufox).
 
 ## Workspace layout
 
-| Crate | Role |
-|---|---|
-| `camoufox-core` | Pure domain: errors, OS types, fingerprint generation, config validation/seeding/chunking, statistical locale selection (embedded CLDR data), mapping tables |
-| `camoufox-pkgman` | GitHub release discovery, version constraints, download with progress, zip extraction, default addon provisioning (uBlock Origin) |
-| `camoufox-geoip` | Public IP resolution (proxy-aware), MaxMind GeoLite2-City geolocation |
-| `camoufox-webgl` | Weighted WebGL fingerprint sampling from an embedded SQLite database |
-| `camoufox-virtdisplay` | Xvfb `-displayfd` virtual display management (Linux) |
-| `camoufox` | Facade: `LaunchOptions` → `PreparedLaunch` → `launch()`, plus the CLI |
+| Crate                  | Role                                                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `camoufox-core`        | Pure domain: errors, OS types, fingerprint generation, config validation/seeding/chunking, statistical locale selection (embedded CLDR data), mapping tables |
+| `camoufox-pkgman`      | GitHub release discovery, version constraints, download with progress, zip extraction, default addon provisioning (uBlock Origin)                            |
+| `camoufox-geoip`       | Public IP resolution (proxy-aware), MaxMind GeoLite2-City geolocation                                                                                        |
+| `camoufox-webgl`       | Weighted WebGL fingerprint sampling from an embedded SQLite database                                                                                         |
+| `camoufox-virtdisplay` | Xvfb `-displayfd` virtual display management (Linux)                                                                                                         |
+| `camoufox`             | Facade: `LaunchOptions` → `PreparedLaunch` → `launch()`, plus the CLI                                                                                        |
 
 Fingerprint generation is backed by
 [`veilus-fingerprint`](https://crates.io/crates/veilus-fingerprint) (Bayesian
@@ -105,4 +105,3 @@ Features planned for future releases:
    without an external driver
 5. **Fingerprint cache** — persist generated identities keyed by seed,
    enabling stable personas across runs
-

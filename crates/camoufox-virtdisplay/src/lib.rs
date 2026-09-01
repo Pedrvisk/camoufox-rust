@@ -188,7 +188,9 @@ async fn spawn_with_displayfd(
 ) -> Result<(tokio::process::Child, u32)> {
     use std::os::unix::io::AsRawFd;
 
-    let (read_fd, write_fd) = nix::unistd::pipe().map_err(|e| {
+    // O_CLOEXEC keeps the pipe private to this parent and its displayfd
+    // child: unrelated children spawned concurrently never inherit it.
+    let (read_fd, write_fd) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).map_err(|e| {
         CamoufoxError::CannotExecuteXvfb(format!("could not create displayfd pipe: {e}"))
     })?;
 
@@ -196,8 +198,23 @@ async fn spawn_with_displayfd(
     let read_fd_for_exec = read_fd.as_raw_fd();
     unsafe {
         command.pre_exec(move || {
-            nix::unistd::dup2(write_fd_for_exec, 3)?;
-            nix::unistd::close(read_fd_for_exec)?;
+            // Move the write end to fd 3, safe against fd-number collisions:
+            // dup() first (fresh descriptor, CLOEXEC cleared), then dup2 onto
+            // 3. A plain dup2 followed by close(read_fd) breaks when the read
+            // end happens to sit at fd 3 — the close would destroy the very
+            // descriptor the dup2 just installed.
+            let copy = nix::unistd::dup(write_fd_for_exec)?;
+            if copy != 3 {
+                nix::unistd::dup2(copy, 3)?;
+                nix::unistd::close(copy)?;
+            }
+            // Close the originals unless one of them is (or became) fd 3.
+            if read_fd_for_exec != 3 {
+                nix::unistd::close(read_fd_for_exec)?;
+            }
+            if write_fd_for_exec != 3 {
+                nix::unistd::close(write_fd_for_exec)?;
+            }
             Ok(())
         });
     }
@@ -260,7 +277,7 @@ impl Drop for VirtualDisplay {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
