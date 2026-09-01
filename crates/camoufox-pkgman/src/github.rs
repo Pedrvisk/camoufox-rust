@@ -79,7 +79,7 @@ impl GitHubDownloader {
 
         let mut attempts = 0;
         let releases: Vec<Release> = loop {
-            let mut request = client.get(&self.api_url());
+            let mut request = client.get(self.api_url());
             for (key, value) in github_authorization_headers(&self.api_url()) {
                 request = request.header(&key, &value);
             }

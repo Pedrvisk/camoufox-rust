@@ -321,7 +321,7 @@ mod tests {
                 "/install/fontconfig/win"
             );
         } else {
-            assert!(env.get("FONTCONFIG_PATH").is_none());
+            assert!(!env.contains_key("FONTCONFIG_PATH"));
         }
         let env = get_env_vars(&config, OsName::Lin, Some(Path::new("/install"))).unwrap();
         if crate::os::host_os() == OsName::Lin {
@@ -330,11 +330,11 @@ mod tests {
                 "/install/fontconfig/lin"
             );
         } else {
-            assert!(env.get("FONTCONFIG_PATH").is_none());
+            assert!(!env.contains_key("FONTCONFIG_PATH"));
         }
         // No fontconfig root → no FONTCONFIG_PATH.
         let env = get_env_vars(&config, OsName::Lin, None).unwrap();
-        assert!(env.get("FONTCONFIG_PATH").is_none());
+        assert!(!env.contains_key("FONTCONFIG_PATH"));
     }
 
     #[test]

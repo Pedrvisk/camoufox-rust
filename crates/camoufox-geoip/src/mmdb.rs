@@ -109,7 +109,7 @@ pub async fn get_geolocation(ip: &str) -> Result<Geolocation> {
     let iso_code = response
         .country
         .as_ref()
-        .and_then(|c| c.iso_code.as_deref())
+        .and_then(|c| c.iso_code)
         .map(str::to_uppercase);
     let Some(location) = response.location else {
         return Err(CamoufoxError::UnknownIpLocation(format!(
@@ -120,7 +120,7 @@ pub async fn get_geolocation(ip: &str) -> Result<Geolocation> {
     let (Some(longitude), Some(latitude), Some(time_zone), Some(iso_code)) = (
         location.longitude,
         location.latitude,
-        location.time_zone.as_deref(),
+        location.time_zone,
         iso_code,
     ) else {
         return Err(CamoufoxError::UnknownIpLocation(format!(

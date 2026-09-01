@@ -108,6 +108,12 @@ pub fn extract_zip(zip_file: &[u8], dest: &Path) -> Result<()> {
 /// Downloads and installs the Camoufox browser from GitHub releases.
 pub struct CamoufoxFetcher;
 
+impl Default for CamoufoxFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CamoufoxFetcher {
     /// The upstream browser repository.
     pub const REPO: &'static str = "daijro/camoufox";

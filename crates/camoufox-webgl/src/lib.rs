@@ -67,9 +67,7 @@ pub fn sample_webgl(
             }
             let data: String = conn
                 .query_row(
-                    &format!(
-                        "SELECT data FROM webgl_fingerprints WHERE vendor = ?1 AND renderer = ?2"
-                    ),
+                    "SELECT data FROM webgl_fingerprints WHERE vendor = ?1 AND renderer = ?2",
                     rusqlite::params![vendor, renderer],
                     |row| row.get(0),
                 )

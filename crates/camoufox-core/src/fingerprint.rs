@@ -194,8 +194,22 @@ pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfi
         // browser; a mobile UA with desktop APIs is a detection signal).
         let desktop = header_ua
             .as_deref()
-            .is_none_or(|ua| !ua.contains("Mobile") && !ua.contains("Tablet"));
-        let header_resolved = header_resolved && desktop;
+            .map(|ua| !ua.contains("Mobile") && !ua.contains("Tablet"))
+            .unwrap_or(true);
+        // The UA platform must match the requested OS. The generator silently
+        // relaxes constraints when its retry budget is exhausted, so the
+        // platform is verified here rather than trusted.
+        let platform_matches = header_ua.as_deref().map(|ua| match os {
+            SupportedOs::Windows => ua.contains("Windows"),
+            SupportedOs::Macos => ua.contains("Mac OS") || ua.contains("Macintosh"),
+            SupportedOs::Linux => ua.contains("Linux") || ua.contains("X11") || ua.contains("Ubuntu"),
+        }).unwrap_or(true);
+        // Desktop screens: reject portrait/mobile-sized samples, which the
+        // fingerprint network can emit even under a desktop header UA.
+        let screen = &profile.fingerprint.screen;
+        let desktop_screen =
+            screen.width >= 800 && screen.height >= 600 && screen.width >= screen.height;
+        let header_resolved = header_resolved && desktop && platform_matches && desktop_screen;
         if header_resolved {
             // Keep profile.browser.family consistent with the header UA.
             profile.browser.family = BrowserFamily::Firefox;
@@ -293,7 +307,7 @@ mod tests {
             })
             .unwrap();
             assert!(profile.fingerprint.navigator.user_agent.contains("Firefox"));
-            assert!(profile.fingerprint.navigator.webdriver == false);
+            assert!(!profile.fingerprint.navigator.webdriver);
         }
     }
 
