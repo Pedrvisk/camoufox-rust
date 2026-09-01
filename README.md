@@ -85,3 +85,22 @@ cargo clippy --workspace --all-targets  # 0 warnings
 
 Requires Rust 1.75+. The browser binaries (~600MB) are downloaded on demand
 into the per-user cache directory.
+
+## Roadmap
+
+Features planned for future releases:
+
+1. **Native Juggler/CDP driver** — a Rust client for Firefox's Juggler
+   automation protocol, closing the automation loop without any Playwright
+   dependency (also a prerequisite for verified fingerprint injection)
+2. **Fingerprint injection verification** — integration tests that assert the
+   running browser's `navigator.userAgent` (and other spoofed surfaces)
+   actually match the generated fingerprint
+3. **Cookie/storage persistence API** — reuse profiles, cookies and local
+   storage across sessions (session keep-alive for logged-in flows)
+4. **Authenticated proxy support** — a Firefox-compatible proxy-auth
+   extension so `--proxy-server` works with `user:pass@host` credentials
+   without an external driver
+5. **Fingerprint cache** — persist generated identities keyed by seed,
+   enabling stable personas across runs
+
