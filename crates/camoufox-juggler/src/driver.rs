@@ -9,7 +9,9 @@ use camoufox_core::error::{CamoufoxError, Result as CoreResult};
 use crate::browser::JugglerBrowser;
 use crate::connection::Connection;
 use crate::error::{JugglerError, Result};
-use crate::transport::{spawn_with_juggler_pipe, wait_ready};
+use crate::transport::spawn_with_juggler_pipe;
+#[cfg(unix)]
+use crate::transport::wait_ready;
 
 /// How long to wait for the pipe to become ready after spawn.
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
@@ -38,9 +40,15 @@ pub async fn launch_with_juggler(options: &LaunchOptions) -> Result<JugglerBrows
     let transport =
         spawn_with_juggler_pipe(&prepared, &profile_dir, headless, &options.args).await?;
     let ready = transport.ready.clone();
+    #[cfg(unix)]
     let mut child = transport.child;
+    #[cfg(not(unix))]
+    let child = transport.child;
     let connection = Arc::new(Connection::new(transport.write, transport.read));
+    #[cfg(unix)]
     wait_ready(&mut child, &ready, READY_TIMEOUT).await?;
+    #[cfg(not(unix))]
+    let _ = (ready, READY_TIMEOUT);
 
     let persistent = options.persistent_profile.is_some();
     let connection2 = connection.clone();

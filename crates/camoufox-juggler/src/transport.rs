@@ -4,10 +4,10 @@
 //! responses/events to FD 4. Messages are UTF-8 JSON frames delimited by a
 //! single NUL byte (see Playwright's `PipeTransport`).
 
+#[cfg(unix)]
 use std::process::Stdio;
 
 use camoufox::builder::PreparedLaunch;
-use tokio::io::AsyncWriteExt;
 
 use crate::error::{JugglerError, Result};
 
@@ -61,11 +61,8 @@ async fn spawn_unix(
 
     // FD 3 (child reads commands) ← pipe A write end (ours).
     // FD 4 (child writes responses) → pipe B read end (ours).
-    let flags = nix::fcntl::OFlag::O_CLOEXEC;
-    let (a_read, a_write) =
-        nix::unistd::pipe2(flags).map_err(|e| JugglerError::Io(format!("pipe: {e}")))?;
-    let (b_read, b_write) =
-        nix::unistd::pipe2(flags).map_err(|e| JugglerError::Io(format!("pipe: {e}")))?;
+    let (a_read, a_write) = pipe_cloexec()?;
+    let (b_read, b_write) = pipe_cloexec()?;
 
     let mut args: Vec<String> = vec![
         "-no-remote".into(),
@@ -94,7 +91,7 @@ async fn spawn_unix(
     command.env_remove("SNAP_INSTANCE_NAME");
 
     // In the forked child: move the pipe ends onto FDs 3 and 4. dup2 clears
-    // CLOEXEC on the target; the originals close at exec (O_CLOEXEC) —
+    // CLOEXEC on the target; the originals close at exec (FD_CLOEXEC) —
     // except when a pipe end already IS fd 3/4, where dup2 would be a no-op
     // and the flag must be cleared manually.
     let a_read_fd = a_read.as_raw_fd();
@@ -135,6 +132,26 @@ async fn spawn_unix(
     })
 }
 
+/// Creates a pipe with `FD_CLOEXEC` set on both ends.
+///
+/// `pipe2(O_CLOEXEC)` is not portable (`nix` gates it to a subset of
+/// Unixes — notably absent on macOS), so the flag is applied with `fcntl`
+/// after a plain `pipe(2)`.
+#[cfg(unix)]
+fn pipe_cloexec() -> Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    use std::os::fd::AsRawFd;
+
+    let (read, write) = nix::unistd::pipe().map_err(|e| JugglerError::Io(format!("pipe: {e}")))?;
+    for fd in [read.as_raw_fd(), write.as_raw_fd()] {
+        nix::fcntl::fcntl(
+            fd,
+            nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+        )
+        .map_err(|e| JugglerError::Io(format!("fcntl FD_CLOEXEC: {e}")))?;
+    }
+    Ok((read, write))
+}
+
 /// Moves `from` onto `to` in the child's fd table (async-signal-safe).
 #[cfg(unix)]
 fn move_fd(from: std::os::raw::c_int, to: std::os::raw::c_int) -> std::io::Result<()> {
@@ -153,6 +170,9 @@ fn move_fd(from: std::os::raw::c_int, to: std::os::raw::c_int) -> std::io::Resul
 }
 
 /// Waits for the `Juggler listening to the pipe` line (readiness probe).
+///
+/// Only meaningful on Unix; the Windows path never spawns the pipe.
+#[cfg(unix)]
 pub async fn wait_ready(
     child: &mut tokio::process::Child,
     ready: &std::sync::atomic::AtomicBool,
@@ -177,6 +197,7 @@ pub async fn wait_ready(
     }
 }
 
+#[cfg(unix)]
 async fn drain_stdout(
     stdout: tokio::process::ChildStdout,
     ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -192,6 +213,7 @@ async fn drain_stdout(
     }
 }
 
+#[cfg(unix)]
 async fn drain_stderr(stderr: tokio::process::ChildStderr) {
     use tokio::io::AsyncBufReadExt;
     let mut lines = tokio::io::BufReader::new(stderr).lines();
@@ -200,19 +222,4 @@ async fn drain_stderr(stderr: tokio::process::ChildStderr) {
             log::debug!("[camoufox:err] {line}");
         }
     }
-}
-
-/// Writes one NUL-terminated JSON frame.
-pub async fn write_frame(writer: &mut tokio::fs::File, message: &serde_json::Value) -> Result<()> {
-    let mut frame = serde_json::to_string(message)?.into_bytes();
-    frame.push(b'\0');
-    writer
-        .write_all(&frame)
-        .await
-        .map_err(|e| JugglerError::Io(format!("pipe write: {e}")))?;
-    writer
-        .flush()
-        .await
-        .map_err(|e| JugglerError::Io(format!("pipe flush: {e}")))?;
-    Ok(())
 }
