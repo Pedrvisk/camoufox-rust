@@ -69,9 +69,11 @@ async fn main() -> anyhow::Result<()> {
 ## Environment
 
 - `CAMOUFOX_INSTALL_DIR` — relocate the browser install directory
-- `GITHUB_TOKEN` — authenticated GitHub API access (avoids rate limits)
 - `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` — skip downloads (CI with pre-provisioned binaries)
 - `CAMOUFOX_DEBUG` — verbose public-IP resolution failures
+
+No authentication is needed: release discovery and downloads hit the public
+GitHub API (60 requests/hour per IP unauthenticated).
 
 ## Build & test
 
