@@ -33,6 +33,15 @@ pub enum HeadlessMode {
 }
 
 /// Proxy configuration (server URL with optional credentials).
+///
+/// # Note on authenticated proxies
+///
+/// Firefox ignores credentials embedded in `--proxy-server`
+/// (`http://user:pass@host:port`); the `username`/`password` fields only take
+/// effect when the launch is driven by an automation stack that injects
+/// proxy authentication (as Playwright does). When using
+/// [`crate::launch::launch`] directly, prefer a proxy without credentials or
+/// one exposed on a local gateway.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProxyConfig {
     /// Proxy server URL (e.g. `http://host:port`).

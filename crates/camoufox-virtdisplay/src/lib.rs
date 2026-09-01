@@ -6,11 +6,17 @@
 //! display number atomically and reports it back through file descriptor 3 —
 //! no userspace race conditions. Mesa software GLX is forced via the
 //! environment since the GPU is not used.
+//!
+//! The implementation only compiles on Linux; on other hosts the API returns
+//! [`camoufox_core::error::CamoufoxError::VirtualDisplayNotSupported`].
 
+#[cfg(target_os = "linux")]
 use std::process::Stdio;
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 use camoufox_core::error::{CamoufoxError, Result};
+#[cfg(target_os = "linux")]
 use tokio::io::AsyncBufReadExt;
 
 /// Timeout for Xvfb writing its display number (prevents infinite hangs).
@@ -18,11 +24,15 @@ const DISPLAYFD_READ_TIMEOUT_MS: u64 = 10_000;
 
 /// A managed Xvfb virtual display.
 pub struct VirtualDisplay {
+    #[cfg(target_os = "linux")]
     debug: bool,
+    #[cfg(target_os = "linux")]
     proc: Option<tokio::process::Child>,
+    #[cfg(target_os = "linux")]
     display: Option<u32>,
 }
 
+#[cfg(target_os = "linux")]
 impl VirtualDisplay {
     /// Creates an unstarted virtual display handle.
     pub fn new(debug: bool) -> Self {
@@ -192,8 +202,6 @@ impl VirtualDisplay {
 
     /// Returns the `":<n>"` display string, starting Xvfb when needed.
     pub async fn get(&mut self) -> Result<String> {
-        assert_linux()?;
-
         if self.proc.is_none() {
             self.spawn_xvfb().await
         } else {
@@ -231,19 +239,10 @@ impl VirtualDisplay {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Drop for VirtualDisplay {
     fn drop(&mut self) {
         self.kill();
-    }
-}
-
-fn assert_linux() -> Result<()> {
-    if cfg!(target_os = "linux") {
-        Ok(())
-    } else {
-        Err(CamoufoxError::VirtualDisplayNotSupported(
-            "Virtual display is only supported on Linux.".into(),
-        ))
     }
 }
 
@@ -303,4 +302,28 @@ mod tests {
             vd.kill();
         }
     }
+}
+
+/// Non-Linux stub: the API surface exists but always reports the platform as
+/// unsupported.
+#[cfg(not(target_os = "linux"))]
+impl VirtualDisplay {
+    /// Creates an unstarted virtual display handle.
+    pub fn new(debug: bool) -> Self {
+        let _ = debug;
+        Self {}
+    }
+
+    /// Always fails on non-Linux platforms.
+    pub async fn get(&mut self) -> Result<String> {
+        Err(CamoufoxError::VirtualDisplayNotSupported(
+            "Virtual display is only supported on Linux.".into(),
+        ))
+    }
+
+    /// No-op on non-Linux platforms.
+    pub fn kill(&mut self) {}
+
+    /// No-op on non-Linux platforms.
+    pub async fn wait(&mut self) {}
 }
