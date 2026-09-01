@@ -112,8 +112,16 @@ impl VirtualDisplay {
         command
             .args(&args)
             .stdin(Stdio::null())
-            .stdout(if self.debug { Stdio::inherit() } else { Stdio::null() })
-            .stderr(if self.debug { Stdio::inherit() } else { Stdio::null() })
+            .stdout(if self.debug {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            })
+            .stderr(if self.debug {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            })
             .env("__GLX_VENDOR_LIBRARY_NAME", "mesa")
             .env("LIBGL_ALWAYS_SOFTWARE", "1");
 
@@ -137,8 +145,7 @@ impl VirtualDisplay {
         drop(write_fd);
 
         // Read "<display>\n" from the pipe, with a timeout.
-        let read_file =
-            unsafe { std::fs::File::from_raw_fd(read_fd.as_raw_fd()) };
+        let read_file = unsafe { std::fs::File::from_raw_fd(read_fd.as_raw_fd()) };
         let mut reader = tokio::io::BufReader::new(tokio::fs::File::from_std(read_file));
         let mut buf = Vec::new();
         let read = tokio::time::timeout(

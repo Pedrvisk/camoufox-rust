@@ -16,7 +16,9 @@ impl DefaultAddon {
     /// The download URL.
     pub fn url(self) -> &'static str {
         match self {
-            Self::Ubo => "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi",
+            Self::Ubo => {
+                "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
+            }
         }
     }
 
@@ -41,8 +43,7 @@ pub fn confirm_paths(paths: &[String]) -> Result<()> {
         }
         if !path.join("manifest.json").exists() {
             return Err(CamoufoxError::InvalidAddonPath(
-                "manifest.json is missing. Addon path must be a path to an extracted addon."
-                    .into(),
+                "manifest.json is missing. Addon path must be a path to an extracted addon.".into(),
             ));
         }
     }
@@ -77,9 +78,7 @@ pub async fn maybe_download_addons(
     addons_list: &mut Vec<String>,
 ) -> Result<()> {
     if camoufox_core::env_utils::skip_browser_download() {
-        log::info!(
-            "Skipping addon download due to PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD set!"
-        );
+        log::info!("Skipping addon download due to PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD set!");
         return Ok(());
     }
 
@@ -111,7 +110,8 @@ pub async fn download_and_extract(
     extract_path: &std::path::Path,
     name: &str,
 ) -> Result<()> {
-    let buffer = crate::install::webdl(url, &format!("Downloading addon ({name})"), false, None, 5).await?;
+    let buffer =
+        crate::install::webdl(url, &format!("Downloading addon ({name})"), false, None, 5).await?;
     crate::install::extract_zip(&buffer, extract_path)
 }
 

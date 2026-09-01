@@ -127,9 +127,12 @@ impl CamoufoxFetcher {
     pub async fn latest_asset(&self) -> Result<(CamoufoxVersion, String)> {
         let os = host_os();
         let arch = platform_arch()?;
-        let pattern =
-            regex::Regex::new(&format!("camoufox-(.+)-(.+)-{}\\.{}\\.zip", os.as_str(), arch))
-                .map_err(|e| CamoufoxError::Io(e.to_string()))?;
+        let pattern = regex::Regex::new(&format!(
+            "camoufox-(.+)-(.+)-{}\\.{}\\.zip",
+            os.as_str(),
+            arch
+        ))
+        .map_err(|e| CamoufoxError::Io(e.to_string()))?;
 
         let downloader = GitHubDownloader::new(Self::REPO);
         let asset = downloader
@@ -237,8 +240,7 @@ fn make_executable(dir: &Path) -> Result<()> {
             .map_err(|e| CamoufoxError::Io(e.to_string()))?
             .permissions();
         perms.set_mode(perms.mode() | 0o755);
-        std::fs::set_permissions(&path, perms)
-            .map_err(|e| CamoufoxError::Io(e.to_string()))?;
+        std::fs::set_permissions(&path, perms).map_err(|e| CamoufoxError::Io(e.to_string()))?;
     }
     Ok(())
 }
@@ -266,7 +268,9 @@ mod tests {
             .unwrap();
         assert_eq!(captures.get(1).unwrap().as_str(), "132.0");
         assert_eq!(captures.get(2).unwrap().as_str(), "0.9.9");
-        assert!(pattern.captures("camoufox-132.0-0.9.9-win.x86_64.zip").is_none());
+        assert!(pattern
+            .captures("camoufox-132.0-0.9.9-win.x86_64.zip")
+            .is_none());
     }
 
     #[test]
@@ -283,6 +287,9 @@ mod tests {
         writer.finish().unwrap();
 
         extract_zip(buffer.get_ref(), &out).unwrap();
-        assert_eq!(std::fs::read_to_string(out.join("hello.txt")).unwrap(), "hello");
+        assert_eq!(
+            std::fs::read_to_string(out.join("hello.txt")).unwrap(),
+            "hello"
+        );
     }
 }

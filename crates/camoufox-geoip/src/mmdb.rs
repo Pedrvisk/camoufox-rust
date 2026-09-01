@@ -21,9 +21,7 @@ pub fn mmdb_path() -> PathBuf {
 /// completes, so a failed download never leaves a truncated database behind.
 pub async fn download_mmdb() -> Result<()> {
     if camoufox_core::env_utils::skip_browser_download() {
-        log::info!(
-            "Skipping GeoIP database download due to PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD set!"
-        );
+        log::info!("Skipping GeoIP database download due to PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD set!");
         return Ok(());
     }
 
@@ -103,7 +101,10 @@ pub async fn get_geolocation(ip: &str) -> Result<Geolocation> {
         .map_err(|e| CamoufoxError::MaxMind(format!("could not open GeoIP database: {e}")))?;
 
     let response: maxminddb::geoip2::City = reader
-        .lookup(ip.parse().map_err(|_| CamoufoxError::InvalidIp(ip.to_string()))?)
+        .lookup(
+            ip.parse()
+                .map_err(|_| CamoufoxError::InvalidIp(ip.to_string()))?,
+        )
         .map_err(|e| CamoufoxError::MaxMind(format!("lookup failed: {e}")))?;
 
     let iso_code = response

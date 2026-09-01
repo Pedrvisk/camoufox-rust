@@ -27,8 +27,8 @@ pub use config::{
 };
 pub use error::{CamoufoxError, Result};
 pub use fingerprint::{
-    check_custom_fingerprint, from_browserforge_convert as from_browserforge,
-    generate_fingerprint, determine_ua_os, FingerprintRequest, ScreenConstraints,
+    check_custom_fingerprint, determine_ua_os, from_browserforge_convert as from_browserforge,
+    generate_fingerprint, FingerprintRequest, ScreenConstraints,
 };
 pub use locale::{
     get_geolocation_config, handle_locale, handle_locales, normalize_locale, Geolocation, Locale,

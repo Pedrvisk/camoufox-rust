@@ -327,12 +327,18 @@ mod tests {
 
     #[test]
     fn error_names_match_js() {
-        assert_eq!(CamoufoxError::unsupported_version().name(), "UnsupportedVersion");
+        assert_eq!(
+            CamoufoxError::unsupported_version().name(),
+            "UnsupportedVersion"
+        );
         assert_eq!(
             CamoufoxError::invalid_locale_input("x").name(),
             "InvalidLocale"
         );
-        assert_eq!(CamoufoxError::unknown_territory_msg("x").name(), "UnknownTerritory");
+        assert_eq!(
+            CamoufoxError::unknown_territory_msg("x").name(),
+            "UnknownTerritory"
+        );
         assert_eq!(
             CamoufoxError::virtual_display_not_supported().name(),
             "VirtualDisplayNotSupported"

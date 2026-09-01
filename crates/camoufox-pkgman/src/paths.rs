@@ -42,7 +42,9 @@ pub fn install_dir() -> PathBuf {
         return dir.clone();
     }
     match std::env::var(INSTALL_DIR_ENV) {
-        Ok(value) if !value.trim().is_empty() => PathBuf::from(value.trim()).canonicalize().unwrap_or_else(|_| PathBuf::from(value.trim())),
+        Ok(value) if !value.trim().is_empty() => PathBuf::from(value.trim())
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(value.trim())),
         _ => user_cache_dir("camoufox"),
     }
 }

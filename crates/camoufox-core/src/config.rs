@@ -29,7 +29,10 @@ pub struct PropertyDef {
 
 /// `loadProperties`: reads `properties.json` from the executable's directory
 /// (when a custom executable is given) or from the install directory.
-pub fn load_properties(executable_path: Option<&Path>, install_root: &Path) -> Result<HashMap<String, String>> {
+pub fn load_properties(
+    executable_path: Option<&Path>,
+    install_root: &Path,
+) -> Result<HashMap<String, String>> {
     let prop_file = match executable_path {
         Some(path) => path
             .parent()
@@ -39,10 +42,7 @@ pub fn load_properties(executable_path: Option<&Path>, install_root: &Path) -> R
     };
 
     let data = std::fs::read_to_string(&prop_file).map_err(|e| {
-        CamoufoxError::FileNotFound(format!(
-            "Could not read {}: {e}",
-            prop_file.display()
-        ))
+        CamoufoxError::FileNotFound(format!("Could not read {}: {e}", prop_file.display()))
     })?;
     let defs: Vec<PropertyDef> = serde_json::from_str(&data)?;
     Ok(defs.into_iter().map(|d| (d.property, d.type_)).collect())
@@ -168,10 +168,16 @@ pub fn spoofs_window_dimensions(config: &ConfigMap) -> bool {
 pub fn cache_prefs() -> BTreeMap<String, Value> {
     let mut prefs = BTreeMap::new();
     prefs.insert("browser.sessionhistory.max_entries".into(), Value::from(10));
-    prefs.insert("browser.sessionhistory.max_total_viewers".into(), Value::from(-1));
+    prefs.insert(
+        "browser.sessionhistory.max_total_viewers".into(),
+        Value::from(-1),
+    );
     prefs.insert("browser.cache.memory.enable".into(), Value::Bool(true));
     prefs.insert("browser.cache.disk_cache_ssl".into(), Value::Bool(true));
-    prefs.insert("browser.cache.disk.smart_size.enabled".into(), Value::Bool(true));
+    prefs.insert(
+        "browser.cache.disk.smart_size.enabled".into(),
+        Value::Bool(true),
+    );
     prefs
 }
 
@@ -217,7 +223,10 @@ pub fn get_env_vars(
         if let Some(root) = fontconfig_root {
             env.insert(
                 "FONTCONFIG_PATH".to_string(),
-                root.join("fontconfig").join(target_os.as_str()).to_string_lossy().into_owned(),
+                root.join("fontconfig")
+                    .join(target_os.as_str())
+                    .to_string_lossy()
+                    .into_owned(),
             );
         }
     }

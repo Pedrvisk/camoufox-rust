@@ -21,6 +21,5 @@ pub use paths::{
 };
 pub use version::{installed_ver_str, CamoufoxVersion, Constraints as CONSTRAINTS};
 
-
 /// Re-exports from the domain layer for caller convenience.
 pub use camoufox_core::os::OsName;

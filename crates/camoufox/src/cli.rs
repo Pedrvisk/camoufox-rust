@@ -1,6 +1,5 @@
 //! Command-line interface: fetch, remove, path, version, prepare, test.
 
-
 use clap::{Parser, Subcommand};
 
 use camoufox::builder::{prepare, HeadlessMode, LaunchOptions};
@@ -125,7 +124,10 @@ async fn run(cli: Cli) -> Result<()> {
                 eprintln!("note: opening URLs requires an automation driver; the browser will start idle.");
             }
             let mut browser = launch(&options).await?;
-            println!("Camoufox running (pid {:?}). Press Ctrl+C to stop.", browser.id());
+            println!(
+                "Camoufox running (pid {:?}). Press Ctrl+C to stop.",
+                browser.id()
+            );
             let _ = browser.wait().await;
             Ok(())
         }
@@ -134,7 +136,11 @@ async fn run(cli: Cli) -> Result<()> {
 
 fn build_options(os: Option<&str>, headless: bool) -> Result<LaunchOptions> {
     let mut options = LaunchOptions {
-        headless: if headless { HeadlessMode::On } else { HeadlessMode::Off },
+        headless: if headless {
+            HeadlessMode::On
+        } else {
+            HeadlessMode::Off
+        },
         ..Default::default()
     };
     if let Some(os) = os {

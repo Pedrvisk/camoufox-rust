@@ -238,7 +238,10 @@ pub async fn prepare(options: &LaunchOptions) -> Result<PreparedLaunch> {
     };
 
     // Inject the fingerprint into the config.
-    merge_into(&mut config, &from_browserforge_convert(&fingerprint, Some(&ff_version)));
+    merge_into(
+        &mut config,
+        &from_browserforge_convert(&fingerprint, Some(&ff_version)),
+    );
 
     // Seeds (spacing/audio/canvas): only what the installed browser declares.
     let known_properties = camoufox_core::config::load_properties(
@@ -248,7 +251,11 @@ pub async fn prepare(options: &LaunchOptions) -> Result<PreparedLaunch> {
     .unwrap_or_default();
     for seed in SEED_PROPERTIES {
         if known_properties.contains_key(*seed) {
-            set_into(&mut config, seed, Value::from(camoufox_core::config::random_seed() as u64));
+            set_into(
+                &mut config,
+                seed,
+                Value::from(camoufox_core::config::random_seed() as u64),
+            );
         }
     }
 
@@ -293,7 +300,11 @@ pub async fn prepare(options: &LaunchOptions) -> Result<PreparedLaunch> {
         let merged: Vec<Value> = {
             let mut seen = std::collections::HashSet::new();
             let mut list: Vec<Value> = Vec::new();
-            for font in os_fonts.iter().map(|f| (*f).to_string()).chain(options.fonts.clone()) {
+            for font in os_fonts
+                .iter()
+                .map(|f| (*f).to_string())
+                .chain(options.fonts.clone())
+            {
                 if seen.insert(font.clone()) {
                     list.push(Value::String(font));
                 }
@@ -310,15 +321,11 @@ pub async fn prepare(options: &LaunchOptions) -> Result<PreparedLaunch> {
     if let Some(geoip) = &options.geoip {
         let ip = match geoip {
             Some(ip) => ip.clone(),
-            None => {
-                camoufox_geoip::public_ip(proxy_url.as_deref())
-                    .await
-                    .map_err(|e| {
-                        CamoufoxError::InvalidIp(format!(
-                            "failed to resolve public IP for geoip: {e}"
-                        ))
-                    })?
-            }
+            None => camoufox_geoip::public_ip(proxy_url.as_deref())
+                .await
+                .map_err(|e| {
+                    CamoufoxError::InvalidIp(format!("failed to resolve public IP for geoip: {e}"))
+                })?,
         };
 
         // Spoof WebRTC if not blocked.
@@ -391,7 +398,10 @@ pub async fn prepare(options: &LaunchOptions) -> Result<PreparedLaunch> {
                 config.insert(key.clone(), value.clone());
             }
         }
-        firefox_user_prefs.insert("webgl.enable-webgl2".into(), Value::Bool(webgl.webgl2_enabled));
+        firefox_user_prefs.insert(
+            "webgl.enable-webgl2".into(),
+            Value::Bool(webgl.webgl2_enabled),
+        );
         firefox_user_prefs.insert("webgl.force-enabled".into(), Value::Bool(true));
     }
 

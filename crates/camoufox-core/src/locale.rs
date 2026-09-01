@@ -54,7 +54,9 @@ impl Locale {
     /// The `locale:*` config entries (`Locale.asConfig`).
     pub fn as_config(&self) -> Result<Map<String, Value>> {
         let Some(region) = &self.region else {
-            return Err(CamoufoxError::LocaleError("Region is required for config".into()));
+            return Err(CamoufoxError::LocaleError(
+                "Region is required for config".into(),
+            ));
         };
         let mut data = Map::new();
         data.insert("locale:region".into(), Value::String(region.clone()));
@@ -120,7 +122,8 @@ struct Territory {
     literacy_percent: f64,
     population: f64,
     languages: Vec<LanguagePopulation>,
-}/// Parsed CLDR territory data (territories with their language populations).
+}
+/// Parsed CLDR territory data (territories with their language populations).
 #[derive(Debug, Default)]
 pub struct TerritoryInfo {
     territories: Vec<Territory>,
@@ -209,7 +212,9 @@ fn parse_territory_info(xml: &str) -> Result<TerritoryInfo> {
             Ok(Event::Eof) => break,
             Ok(_) => {}
             Err(e) => {
-                return Err(CamoufoxError::Xml(format!("territoryInfo parse error: {e}")));
+                return Err(CamoufoxError::Xml(format!(
+                    "territoryInfo parse error: {e}"
+                )));
             }
         }
         buf.clear();
@@ -220,7 +225,9 @@ fn parse_territory_info(xml: &str) -> Result<TerritoryInfo> {
 /// Parsed territory data (singleton).
 pub fn territory_info() -> &'static TerritoryInfo {
     static INFO: OnceLock<TerritoryInfo> = OnceLock::new();
-    INFO.get_or_init(|| parse_territory_info(TERRITORY_INFO_XML).expect("embedded territoryInfo.xml is valid"))
+    INFO.get_or_init(|| {
+        parse_territory_info(TERRITORY_INFO_XML).expect("embedded territoryInfo.xml is valid")
+    })
 }
 
 fn weighted_random_choice<T: Clone>(items: &[T], weights: &[f64]) -> Option<T> {
@@ -252,9 +259,7 @@ pub fn from_region(region: &str) -> Result<Locale> {
         .territories
         .iter()
         .find(|t| t.code.eq_ignore_ascii_case(region))
-        .ok_or_else(|| {
-            CamoufoxError::UnknownTerritory(format!("Unknown territory: {region}"))
-        })?;
+        .ok_or_else(|| CamoufoxError::UnknownTerritory(format!("Unknown territory: {region}")))?;
 
     if territory.languages.is_empty() {
         return Err(CamoufoxError::LocaleError(format!(
@@ -273,8 +278,7 @@ pub fn from_region(region: &str) -> Result<Locale> {
         .map(|l| l.population_percent)
         .collect();
 
-    let language =
-        weighted_random_choice(&languages, &weights).expect("territory has languages");
+    let language = weighted_random_choice(&languages, &weights).expect("territory has languages");
     normalize_locale(&format!("{language}-{region}"))
 }
 
@@ -335,9 +339,9 @@ pub fn is_valid_tag(tag: &str) -> bool {
         }
         let len = part.chars().count();
         let ok = match len {
-            4 => is_alpha(part),                          // script
-            2 => is_alpha(part),                          // region
-            3 => is_alpha(part) || is_digits(part),       // region (numeric) or extlang
+            4 => is_alpha(part),                    // script
+            2 => is_alpha(part),                    // region
+            3 => is_alpha(part) || is_digits(part), // region (numeric) or extlang
             _ => false,
         };
         if !ok {
@@ -589,7 +593,11 @@ mod tests {
     fn handle_locales_first_plus_all() {
         let mut config = Map::new();
         handle_locales(
-            &["pt-BR".to_string(), "en-US".to_string(), "en-US".to_string()],
+            &[
+                "pt-BR".to_string(),
+                "en-US".to_string(),
+                "en-US".to_string(),
+            ],
             &mut config,
         )
         .unwrap();
@@ -621,6 +629,13 @@ mod tests {
         assert_eq!(config.get("timezone").unwrap(), "America/Sao_Paulo");
         assert_eq!(config.get("locale:region").unwrap(), "BR");
         assert_eq!(config.get("geolocation:accuracy").unwrap(), 50);
-        assert!(config.get("geolocation:longitude").unwrap().as_f64().unwrap() < -47.0);
+        assert!(
+            config
+                .get("geolocation:longitude")
+                .unwrap()
+                .as_f64()
+                .unwrap()
+                < -47.0
+        );
     }
 }

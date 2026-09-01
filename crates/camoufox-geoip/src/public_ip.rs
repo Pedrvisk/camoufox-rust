@@ -30,15 +30,18 @@ pub fn validate_ip(ip: &str) -> Result<()> {
     if ip.parse::<IpAddr>().is_ok() {
         return Ok(());
     }
-    Err(CamoufoxError::InvalidIp(format!("Invalid IP address: {ip}")))
+    Err(CamoufoxError::InvalidIp(format!(
+        "Invalid IP address: {ip}"
+    )))
 }
 
 /// Builds a reqwest client that routes through `proxy` when given.
 fn client_for(proxy: Option<&str>) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(5));
     if let Some(proxy) = proxy {
-        let proxy = reqwest::Proxy::all(proxy)
-            .map_err(|e| CamoufoxError::InvalidProxy(format!("Invalid proxy server: {proxy} ({e})")))?;
+        let proxy = reqwest::Proxy::all(proxy).map_err(|e| {
+            CamoufoxError::InvalidProxy(format!("Invalid proxy server: {proxy} ({e})"))
+        })?;
         builder = builder.proxy(proxy);
     }
     builder

@@ -79,8 +79,7 @@ impl CamoufoxVersion {
     pub fn is_supported(&self) -> bool {
         let min = Self::new(Constraints::MIN_VERSION, None);
         let max = Self::new(Constraints::MAX_VERSION, None);
-        (min.less_than(self) || min.sorted_rel == self.sorted_rel)
-            && self.less_than(&max)
+        (min.less_than(self) || min.sorted_rel == self.sorted_rel) && self.less_than(&max)
     }
 
     /// Component-wise comparison: strictly less than.
@@ -111,20 +110,16 @@ impl CamoufoxVersion {
             #[serde(default)]
             version: Option<String>,
         }
-        let raw: Raw = serde_json::from_str(
-            &std::fs::read_to_string(&version_path).map_err(|e| {
-                CamoufoxError::Io(format!(
-                    "Could not read {}: {e}",
+        let raw: Raw =
+            serde_json::from_str(&std::fs::read_to_string(&version_path).map_err(|e| {
+                CamoufoxError::Io(format!("Could not read {}: {e}", version_path.display()))
+            })?)
+            .map_err(|e| {
+                CamoufoxError::Json(format!(
+                    "Invalid version.json at {}: {e}",
                     version_path.display()
                 ))
-            })?,
-        )
-        .map_err(|e| {
-            CamoufoxError::Json(format!(
-                "Invalid version.json at {}: {e}",
-                version_path.display()
-            ))
-        })?;
+            })?;
         Ok(Self::new(raw.release, raw.version))
     }
 

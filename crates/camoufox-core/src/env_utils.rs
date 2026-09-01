@@ -44,8 +44,14 @@ mod tests {
 
     #[test]
     fn default_values() {
-        assert!(get_as_boolean_from_env("CF_CORE_ENV_TEST_UNSET", Some(true)));
-        assert!(!get_as_boolean_from_env("CF_CORE_ENV_TEST_UNSET", Some(false)));
+        assert!(get_as_boolean_from_env(
+            "CF_CORE_ENV_TEST_UNSET",
+            Some(true)
+        ));
+        assert!(!get_as_boolean_from_env(
+            "CF_CORE_ENV_TEST_UNSET",
+            Some(false)
+        ));
         assert!(!get_as_boolean_from_env("CF_CORE_ENV_TEST_UNSET", None));
     }
 }

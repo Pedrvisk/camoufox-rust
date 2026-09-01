@@ -107,12 +107,12 @@ pub async fn launch(options: &LaunchOptions) -> Result<LaunchedBrowser> {
         command.env(key, value);
     }
 
-    let child = command
-        .spawn()
-        .map_err(|e| CamoufoxError::Io(format!(
+    let child = command.spawn().map_err(|e| {
+        CamoufoxError::Io(format!(
             "failed to launch {}: {e}",
             prepared.executable_path.display()
-        )))?;
+        ))
+    })?;
 
     // Give the profile dir to the browser; it is intentionally leaked (the
     // browser needs it for its lifetime).

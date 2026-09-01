@@ -199,11 +199,16 @@ pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfi
         // The UA platform must match the requested OS. The generator silently
         // relaxes constraints when its retry budget is exhausted, so the
         // platform is verified here rather than trusted.
-        let platform_matches = header_ua.as_deref().map(|ua| match os {
-            SupportedOs::Windows => ua.contains("Windows"),
-            SupportedOs::Macos => ua.contains("Mac OS") || ua.contains("Macintosh"),
-            SupportedOs::Linux => ua.contains("Linux") || ua.contains("X11") || ua.contains("Ubuntu"),
-        }).unwrap_or(true);
+        let platform_matches = header_ua
+            .as_deref()
+            .map(|ua| match os {
+                SupportedOs::Windows => ua.contains("Windows"),
+                SupportedOs::Macos => ua.contains("Mac OS") || ua.contains("Macintosh"),
+                SupportedOs::Linux => {
+                    ua.contains("Linux") || ua.contains("X11") || ua.contains("Ubuntu")
+                }
+            })
+            .unwrap_or(true);
         // Desktop screens: reject portrait/mobile-sized samples, which the
         // fingerprint network can emit even under a desktop header UA.
         let screen = &profile.fingerprint.screen;
@@ -224,10 +229,7 @@ pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfi
         let browser_exhausted = attempt >= MAX_BROWSER_ATTEMPTS as u64;
         let screen_exhausted = attempt >= MAX_SCREEN_ATTEMPTS as u64;
 
-        if (header_resolved && fits)
-            || (browser_exhausted && fits)
-            || screen_exhausted
-        {
+        if (header_resolved && fits) || (browser_exhausted && fits) || screen_exhausted {
             let profile = match request.window {
                 Some((width, height)) => handle_window_size(profile, width, height),
                 None => profile,
@@ -239,7 +241,11 @@ pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfi
 }
 
 /// Adjusts the fingerprint screen around a fixed window size.
-pub fn handle_window_size(mut profile: BrowserProfile, outer_width: u32, outer_height: u32) -> BrowserProfile {
+pub fn handle_window_size(
+    mut profile: BrowserProfile,
+    outer_width: u32,
+    outer_height: u32,
+) -> BrowserProfile {
     let screen = &mut profile.fingerprint.screen;
 
     let centered_x = (i64::from(screen.width) - i64::from(outer_width)).div_euclid(2);
@@ -250,12 +256,14 @@ pub fn handle_window_size(mut profile: BrowserProfile, outer_width: u32, outer_h
 
     if screen.inner_width > 0 {
         let old_outer = u64::from(screen.outer_width.unwrap_or(outer_width));
-        let inner = (u64::from(outer_width) + u64::from(screen.inner_width)).saturating_sub(old_outer);
+        let inner =
+            (u64::from(outer_width) + u64::from(screen.inner_width)).saturating_sub(old_outer);
         screen.inner_width = inner as u32;
     }
     if screen.inner_height > 0 {
         let old_outer = u64::from(screen.outer_height.unwrap_or(outer_height));
-        let inner = (u64::from(outer_height) + u64::from(screen.inner_height)).saturating_sub(old_outer);
+        let inner =
+            (u64::from(outer_height) + u64::from(screen.inner_height)).saturating_sub(old_outer);
         screen.inner_height = inner as u32;
     }
 
@@ -266,7 +274,10 @@ pub fn handle_window_size(mut profile: BrowserProfile, outer_width: u32, outer_h
 
 /// Converts a profile into the Camoufox config map
 /// into the Camoufox config map.
-pub fn from_browserforge_convert(profile: &BrowserProfile, ff_version: Option<&str>) -> Map<String, Value> {
+pub fn from_browserforge_convert(
+    profile: &BrowserProfile,
+    ff_version: Option<&str>,
+) -> Map<String, Value> {
     from_browserforge(profile, ff_version)
 }
 

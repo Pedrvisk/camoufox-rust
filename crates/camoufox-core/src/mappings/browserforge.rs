@@ -86,7 +86,9 @@ fn put_bool(out: &mut Map<String, Value>, key: &str, value: Option<bool>) {
 /// browser chrome (~40px vertical, ~16px horizontal).
 fn window_viewport(screen: &veilus_fingerprint::ScreenFingerprint) -> (f64, f64) {
     let outer_w = screen.outer_width.unwrap_or(screen.width);
-    let outer_h = screen.outer_height.unwrap_or(screen.avail_height.max(screen.height));
+    let outer_h = screen
+        .outer_height
+        .unwrap_or(screen.avail_height.max(screen.height));
 
     let inner_w = if screen.inner_width > 0 {
         f64::from(screen.inner_width)
@@ -104,7 +106,10 @@ fn window_viewport(screen: &veilus_fingerprint::ScreenFingerprint) -> (f64, f64)
 /// Computes `window.screenY` from the fingerprint screen data.
 ///
 /// `window.screenY` is never produced by the mapping table, so this always runs.
-pub fn handle_screen_xy(out: &mut Map<String, Value>, screen: &veilus_fingerprint::ScreenFingerprint) {
+pub fn handle_screen_xy(
+    out: &mut Map<String, Value>,
+    screen: &veilus_fingerprint::ScreenFingerprint,
+) {
     use rand::Rng;
 
     if out.contains_key("window.screenY") {
@@ -151,32 +156,97 @@ pub fn cast_to_properties(
     let screen = &fp.screen;
 
     // navigator.*
-    put_str(out, "navigator.userAgent", Some(&nav.user_agent), ff_version);
-    put_str(out, "navigator.doNotTrack", nav.do_not_track.as_deref(), ff_version);
-    put_str(out, "navigator.appCodeName", nav.app_code_name.as_deref(), ff_version);
-    put_str(out, "navigator.appName", nav.app_name.as_deref(), ff_version);
-    put_str(out, "navigator.appVersion", nav.app_version.as_deref(), ff_version);
+    put_str(
+        out,
+        "navigator.userAgent",
+        Some(&nav.user_agent),
+        ff_version,
+    );
+    put_str(
+        out,
+        "navigator.doNotTrack",
+        nav.do_not_track.as_deref(),
+        ff_version,
+    );
+    put_str(
+        out,
+        "navigator.appCodeName",
+        nav.app_code_name.as_deref(),
+        ff_version,
+    );
+    put_str(
+        out,
+        "navigator.appName",
+        nav.app_name.as_deref(),
+        ff_version,
+    );
+    put_str(
+        out,
+        "navigator.appVersion",
+        nav.app_version.as_deref(),
+        ff_version,
+    );
     put_str(out, "navigator.oscpu", nav.oscpu.as_deref(), ff_version);
     put_str(out, "navigator.platform", Some(&nav.platform), ff_version);
-    put_num(out, "navigator.hardwareConcurrency", Some(f64::from(nav.hardware_concurrency)));
+    put_num(
+        out,
+        "navigator.hardwareConcurrency",
+        Some(f64::from(nav.hardware_concurrency)),
+    );
     put_str(out, "navigator.product", nav.product.as_deref(), ff_version);
-    put_num(out, "navigator.maxTouchPoints", nav.max_touch_points.map(f64::from));
+    put_num(
+        out,
+        "navigator.maxTouchPoints",
+        nav.max_touch_points.map(f64::from),
+    );
     if let Some(extra) = &nav.extra_properties {
-        put_bool(out, "navigator.globalPrivacyControl", extra.global_privacy_control);
+        put_bool(
+            out,
+            "navigator.globalPrivacyControl",
+            extra.global_privacy_control,
+        );
     }
 
     // screen.* / window.* dimensions
     put_num(out, "screen.availLeft", screen.avail_left.map(f64::from));
     put_num(out, "screen.availTop", screen.avail_top.map(f64::from));
-    put_num(out, "screen.availWidth", Some(f64::from(screen.avail_width)));
-    put_num(out, "screen.availHeight", Some(f64::from(screen.avail_height)));
+    put_num(
+        out,
+        "screen.availWidth",
+        Some(f64::from(screen.avail_width)),
+    );
+    put_num(
+        out,
+        "screen.availHeight",
+        Some(f64::from(screen.avail_height)),
+    );
     put_num(out, "screen.height", Some(f64::from(screen.height)));
     put_num(out, "screen.width", Some(f64::from(screen.width)));
-    put_num(out, "screen.colorDepth", Some(f64::from(screen.color_depth)));
-    put_num(out, "screen.pixelDepth", Some(f64::from(screen.pixel_depth)));
-    put_num(out, "screen.pageXOffset", screen.page_x_offset.map(f64::from));
-    put_num(out, "screen.pageYOffset", screen.page_y_offset.map(f64::from));
-    put_num(out, "window.outerHeight", screen.outer_height.map(f64::from));
+    put_num(
+        out,
+        "screen.colorDepth",
+        Some(f64::from(screen.color_depth)),
+    );
+    put_num(
+        out,
+        "screen.pixelDepth",
+        Some(f64::from(screen.pixel_depth)),
+    );
+    put_num(
+        out,
+        "screen.pageXOffset",
+        screen.page_x_offset.map(f64::from),
+    );
+    put_num(
+        out,
+        "screen.pageYOffset",
+        screen.page_y_offset.map(f64::from),
+    );
+    put_num(
+        out,
+        "window.outerHeight",
+        screen.outer_height.map(f64::from),
+    );
     put_num(out, "window.outerWidth", screen.outer_width.map(f64::from));
     // A window always has a viewport; a zero sample falls back to the screen
     // dimensions minus typical browser chrome.
@@ -186,7 +256,12 @@ pub fn cast_to_properties(
     put_num(out, "window.screenX", screen.screen_x.map(f64::from));
 
     // headers.*
-    put_str(out, "headers.Accept-Encoding", profile.headers.get("Accept-Encoding").map(String::as_str), None);
+    put_str(
+        out,
+        "headers.Accept-Encoding",
+        profile.headers.get("Accept-Encoding").map(String::as_str),
+        None,
+    );
 
     // battery:*
     if let Some(battery) = &fp.battery {
@@ -211,7 +286,9 @@ pub fn from_browserforge(profile: &BrowserProfile, ff_version: Option<&str>) -> 
 /// anything else → lin (Android/iOS map to `lin` too).
 pub fn determine_ua_os(user_agent: &str) -> crate::error::Result<OsName> {
     if user_agent.trim().is_empty() {
-        return Err(CamoufoxError::Io("Could not determine OS from user agent".into()));
+        return Err(CamoufoxError::Io(
+            "Could not determine OS from user agent".into(),
+        ));
     }
     if user_agent.contains("Windows") {
         return Ok(OsName::Win);
@@ -242,7 +319,10 @@ mod tests {
     #[test]
     fn ua_os_detection() {
         assert_eq!(
-            determine_ua_os("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0").unwrap(),
+            determine_ua_os(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0"
+            )
+            .unwrap(),
             OsName::Win
         );
         assert_eq!(
@@ -250,7 +330,10 @@ mod tests {
             OsName::Mac
         );
         assert_eq!(
-            determine_ua_os("Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0").unwrap(),
+            determine_ua_os(
+                "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0"
+            )
+            .unwrap(),
             OsName::Lin
         );
     }

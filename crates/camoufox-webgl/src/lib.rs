@@ -119,8 +119,7 @@ fn open_embedded_db() -> Result<Connection> {
 
     let conn = Connection::open_with_flags(
         temp.path(),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(|e| CamoufoxError::Sqlite(e.to_string()))?;
 
@@ -169,7 +168,11 @@ fn possible_pairs_error(
         .map_err(|e| CamoufoxError::Sqlite(e.to_string()))?;
     let pairs: Vec<String> = statement
         .query_map([], |row| {
-            Ok(format!("{}, {}", row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok(format!(
+                "{}, {}",
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?
+            ))
         })
         .map_err(|e| CamoufoxError::Sqlite(e.to_string()))?
         .collect::<std::result::Result<_, _>>()
@@ -232,7 +235,10 @@ mod tests {
         for os in [OsName::Win, OsName::Mac, OsName::Lin] {
             let fp = sample_webgl(os, None, None).unwrap();
             assert!(fp.config.contains_key("webGl:vendor"), "vendor for {os}");
-            assert!(fp.config.contains_key("webGl:renderer"), "renderer for {os}");
+            assert!(
+                fp.config.contains_key("webGl:renderer"),
+                "renderer for {os}"
+            );
         }
     }
 
@@ -257,8 +263,7 @@ mod tests {
         let pairs = get_possible_pairs().unwrap();
         let win_pairs = &pairs["win"];
         let first = &win_pairs[0];
-        let fp = sample_webgl(OsName::Win, Some(&first.vendor), Some(&first.renderer))
-            .unwrap();
+        let fp = sample_webgl(OsName::Win, Some(&first.vendor), Some(&first.renderer)).unwrap();
         assert_eq!(
             fp.config.get("webGl:vendor").and_then(Value::as_str),
             Some(first.vendor.as_str())
@@ -267,8 +272,7 @@ mod tests {
 
     #[test]
     fn invalid_pair_errors_with_candidates() {
-        let err = sample_webgl(OsName::Win, Some("Nonexistent"), Some("GPU"))
-            .unwrap_err();
+        let err = sample_webgl(OsName::Win, Some("Nonexistent"), Some("GPU")).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("Nonexistent"));
         assert!(msg.contains("Possible pairs"));

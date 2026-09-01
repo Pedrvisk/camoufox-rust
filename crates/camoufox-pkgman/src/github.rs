@@ -13,7 +13,10 @@ pub fn github_authorization_headers(url: &str) -> Vec<(String, String)> {
         return Vec::new();
     };
     if let Some(host) = url.split('/').nth(2).map(str::to_string) {
-        if host == "api.github.com" || host == "github.com" || host == "objects.githubusercontent.com" {
+        if host == "api.github.com"
+            || host == "github.com"
+            || host == "objects.githubusercontent.com"
+        {
             return vec![("Authorization".into(), format!("Bearer {token}"))];
         }
     }

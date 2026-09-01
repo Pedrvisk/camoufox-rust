@@ -69,11 +69,8 @@ pub enum SupportedOs {
 }
 
 /// Default fingerprint OS choices: `["windows", "macos", "linux"]`.
-pub const SUPPORTED_OS: &[SupportedOs] = &[
-    SupportedOs::Windows,
-    SupportedOs::Macos,
-    SupportedOs::Linux,
-];
+pub const SUPPORTED_OS: &[SupportedOs] =
+    &[SupportedOs::Windows, SupportedOs::Macos, SupportedOs::Linux];
 
 impl SupportedOs {
     /// The string accepted in [`crate::LaunchOptions`]-style inputs.
