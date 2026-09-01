@@ -102,16 +102,9 @@ impl VirtualDisplay {
     }
 
     /// Spawns Xvfb with `-displayfd 3`, waits for the display number and
-    /// returns `(":<n>", child)`.
+    /// returns `":<n>"`.
     async fn spawn_xvfb(&mut self) -> Result<String> {
-        use std::os::fd::FromRawFd;
-        use std::os::unix::io::AsRawFd;
-
         let xvfb_path = self.xvfb_path()?;
-
-        let (read_fd, write_fd) = nix::unistd::pipe().map_err(|e| {
-            CamoufoxError::CannotExecuteXvfb(format!("could not create displayfd pipe: {e}"))
-        })?;
 
         let mut args = vec!["-displayfd".to_string(), "3".to_string()];
         args.extend(Self::xvfb_args());
@@ -136,66 +129,7 @@ impl VirtualDisplay {
             .env("__GLX_VENDOR_LIBRARY_NAME", "mesa")
             .env("LIBGL_ALWAYS_SOFTWARE", "1");
 
-        let write_fd_for_exec = write_fd.as_raw_fd();
-        let read_fd_for_exec = read_fd.as_raw_fd();
-        unsafe {
-            command.pre_exec(move || {
-                // Dup the write end onto fd 3 for Xvfb to report the chosen
-                // display number, and close the read end in the child.
-                nix::unistd::dup2(write_fd_for_exec, 3)?;
-                nix::unistd::close(read_fd_for_exec)?;
-                Ok(())
-            });
-        }
-
-        let mut child = command
-            .spawn()
-            .map_err(|e| CamoufoxError::CannotExecuteXvfb(e.to_string()))?;
-
-        // Drop the parent's write end so EOF propagates if Xvfb dies.
-        drop(write_fd);
-
-        // Read "<display>\n" from the pipe, with a timeout.
-        let read_file = unsafe { std::fs::File::from_raw_fd(read_fd.as_raw_fd()) };
-        let mut reader = tokio::io::BufReader::new(tokio::fs::File::from_std(read_file));
-        let mut buf = Vec::new();
-        let read = tokio::time::timeout(
-            Duration::from_millis(DISPLAYFD_READ_TIMEOUT_MS),
-            reader.read_until(b'\n', &mut buf),
-        )
-        .await;
-
-        let read = match read {
-            Ok(Ok(n)) if n > 0 => n,
-            Ok(Ok(_)) => {
-                let _ = child.start_kill();
-                return Err(CamoufoxError::CannotExecuteXvfb(
-                    "Xvfb closed the displayfd pipe without reporting a display".into(),
-                ));
-            }
-            Ok(Err(e)) => {
-                let _ = child.start_kill();
-                return Err(CamoufoxError::CannotExecuteXvfb(format!(
-                    "failed to read displayfd: {e}"
-                )));
-            }
-            Err(_) => {
-                let _ = child.start_kill();
-                return Err(CamoufoxError::CannotExecuteXvfb(format!(
-                    "Xvfb did not report a display within {DISPLAYFD_READ_TIMEOUT_MS}ms"
-                )));
-            }
-        };
-        let _ = read;
-
-        let text = String::from_utf8_lossy(&buf).trim().to_string();
-        let Some(display) = text.parse::<u32>().ok() else {
-            let _ = child.start_kill();
-            return Err(CamoufoxError::CannotExecuteXvfb(format!(
-                "Xvfb did not report a display (got {text:?})"
-            )));
-        };
-
+        let (child, display) = spawn_with_displayfd(command).await?;
         self.display = Some(display);
         self.proc = Some(child);
         Ok(format!(":{display}"))
@@ -240,6 +174,85 @@ impl VirtualDisplay {
     }
 }
 
+/// Spawns `command` with a displayfd pipe on fd 3 and returns the child plus
+/// the display number it reported.
+///
+/// The write end is dup2'd onto fd 3 in the child (and the read end closed
+/// there); the parent drops its write end so EOF propagates, then reads
+/// `"<display>\n"` with a timeout. File-descriptor ownership is transferred
+/// exactly once: the pipe's [`OwnedFd`] is *moved* into the `File` — a
+/// `from_raw_fd` alias here would double-close and abort the process.
+#[cfg(target_os = "linux")]
+async fn spawn_with_displayfd(
+    mut command: tokio::process::Command,
+) -> Result<(tokio::process::Child, u32)> {
+    use std::os::unix::io::AsRawFd;
+
+    let (read_fd, write_fd) = nix::unistd::pipe().map_err(|e| {
+        CamoufoxError::CannotExecuteXvfb(format!("could not create displayfd pipe: {e}"))
+    })?;
+
+    let write_fd_for_exec = write_fd.as_raw_fd();
+    let read_fd_for_exec = read_fd.as_raw_fd();
+    unsafe {
+        command.pre_exec(move || {
+            nix::unistd::dup2(write_fd_for_exec, 3)?;
+            nix::unistd::close(read_fd_for_exec)?;
+            Ok(())
+        });
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| CamoufoxError::CannotExecuteXvfb(e.to_string()))?;
+
+    // Drop the parent's write end so EOF propagates if the child dies.
+    drop(write_fd);
+
+    // Move the read end into a File — single owner, no double close.
+    let read_file = std::fs::File::from(read_fd);
+    let mut reader = tokio::io::BufReader::new(tokio::fs::File::from_std(read_file));
+    let mut buf = Vec::new();
+    let read = tokio::time::timeout(
+        Duration::from_millis(DISPLAYFD_READ_TIMEOUT_MS),
+        reader.read_until(b'\n', &mut buf),
+    )
+    .await;
+
+    match read {
+        Ok(Ok(n)) if n > 0 => {}
+        Ok(Ok(_)) => {
+            let _ = child.start_kill();
+            return Err(CamoufoxError::CannotExecuteXvfb(
+                "child closed the displayfd pipe without reporting a display".into(),
+            ));
+        }
+        Ok(Err(e)) => {
+            let _ = child.start_kill();
+            return Err(CamoufoxError::CannotExecuteXvfb(format!(
+                "failed to read displayfd: {e}"
+            )));
+        }
+        Err(_) => {
+            let _ = child.start_kill();
+            return Err(CamoufoxError::CannotExecuteXvfb(format!(
+                "no display reported within {DISPLAYFD_READ_TIMEOUT_MS}ms"
+            )));
+        }
+    }
+
+    let text = String::from_utf8_lossy(&buf).trim().to_string();
+    match text.parse::<u32>() {
+        Ok(display) => Ok((child, display)),
+        Err(_) => {
+            let _ = child.start_kill();
+            Err(CamoufoxError::CannotExecuteXvfb(format!(
+                "child did not report a display (got {text:?})"
+            )))
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 impl Drop for VirtualDisplay {
     fn drop(&mut self) {
@@ -257,6 +270,31 @@ mod tests {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
+    }
+
+    #[tokio::test]
+    async fn displayfd_pipe_lifecycle_is_safe() {
+        // Exercises the exact fd plumbing of spawn_with_displayfd using `sh`
+        // instead of Xvfb: the child writes a display number to fd 3. Passes
+        // if the ownership transfer is correct (a double close aborts the
+        // process with an IO safety violation).
+        if !std::process::Command::new("sh")
+            .arg("-c")
+            .arg("true")
+            .stdout(Stdio::null())
+            .status()
+            .is_ok()
+        {
+            return;
+        }
+        let mut command = tokio::process::Command::new("sh");
+        command.arg("-c").arg("printf '5\\n' >&3");
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::null());
+        command.stderr(Stdio::null());
+        let (mut child, display) = spawn_with_displayfd(command).await.unwrap();
+        assert_eq!(display, 5);
+        let _ = child.wait().await;
     }
 
     #[tokio::test]
