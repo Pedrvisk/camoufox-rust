@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords = ["camoufox", "antidetect", "fingerprint", "browser", "playwright"]
+categories = ["web-programming", "command-line-utilities"]
 
 [[bin]]
 name = "camoufox"

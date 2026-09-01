@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords = ["camoufox", "browser", "download", "github", "addons"]
+categories = ["web-programming"]
 
 [dev-dependencies]
 tempfile.workspace = true

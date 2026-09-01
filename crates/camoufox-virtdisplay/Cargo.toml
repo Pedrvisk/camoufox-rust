@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords = ["camoufox", "xvfb", "virtual-display", "headless"]
+categories = ["os::linux-apis"]
 
 [dependencies]
 camoufox-core.workspace = true
