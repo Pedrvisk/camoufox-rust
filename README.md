@@ -5,6 +5,8 @@ browser. Manages the browser binaries, generates statistically realistic
 Firefox fingerprints, and prepares/launches the browser with full fingerprint,
 locale, geolocation and WebGL spoofing.
 
+Inspired by camoufox-js (https://github.com/apify/camoufox-js) and Camoufox (https://github.com/daijro/camoufox).
+
 ## Workspace layout
 
 | Crate | Role |

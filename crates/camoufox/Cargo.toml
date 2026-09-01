@@ -1,6 +1,6 @@
 [package]
 name = "camoufox"
-description = "Facade crate and CLI for camoufox-rust: LaunchOptions, PreparedLaunch, launch"
+description = "Facade crate and CLI for camoufox-rust: LaunchOptions, PreparedLaunch, launch. Inspired by camoufox-js (https://github.com/apify/camoufox-js) and Camoufox (https://github.com/daijro/camoufox)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
