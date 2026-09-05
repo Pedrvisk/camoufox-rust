@@ -123,6 +123,30 @@ impl JugglerBrowser {
         Ok(())
     }
 
+    /// Toggles the touch capability of a browser context
+    /// (`Browser.setTouchOverride`).
+    ///
+    /// `Some(true)` makes content in the context behave as a touch device
+    /// (`pointer: coarse`, touch events in the DOM) — pair with
+    /// [`crate::input`]'s `tap`/`touch_event` for full mobile emulation.
+    /// `browser_context_id: None` targets the default context; a `None`
+    /// `has_touch` clears the override.
+    pub async fn set_touch_override(
+        &self,
+        browser_context_id: Option<&str>,
+        has_touch: Option<bool>,
+    ) -> Result<()> {
+        self.connection
+            .send_command(
+                None,
+                "Browser.setTouchOverride",
+                crate::emulation::touch_override(browser_context_id, has_touch),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
     /// The underlying connection (advanced use).
     pub fn connection(&self) -> Arc<Connection> {
         self.connection.clone()

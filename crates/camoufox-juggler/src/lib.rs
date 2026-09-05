@@ -68,6 +68,7 @@ pub mod browser;
 pub mod connection;
 pub mod download;
 pub mod driver;
+pub mod emulation;
 pub mod error;
 pub mod har;
 pub mod input;
@@ -86,6 +87,7 @@ pub use download::{
     DownloadBehavior, DownloadCreated, DownloadEvent, DownloadEvents, DownloadFinished,
 };
 pub use driver::{core_error, into_core, launch_with_juggler};
+pub use emulation::{ColorScheme, Contrast, EmulatedMedia, ForcedColors, MediaType, ReducedMotion};
 pub use error::{JugglerError, Result};
 pub use har::HarLog;
 pub use input::{KeyDescriptor, Modifiers, MouseButton, TouchEventType, TouchPoint};

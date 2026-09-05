@@ -1067,6 +1067,47 @@ impl JugglerPage {
         Ok(())
     }
 
+    // -- Emulation ---------------------------------------------------------------
+
+    /// Emulates media features for this page (`Page.setEmulatedMedia`):
+    /// media type (`screen`/`print`), color scheme, reduced motion,
+    /// forced colors and contrast.
+    ///
+    /// ```text
+    /// page.emulate_media(&EmulatedMedia::dark_mode()).await?;
+    /// page.emulate_media(&EmulatedMedia::print()).await?;
+    /// page.emulate_media(&EmulatedMedia::reset()).await?;
+    /// ```
+    pub async fn emulate_media(&self, media: &crate::emulation::EmulatedMedia) -> Result<()> {
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.setEmulatedMedia",
+                media.to_params(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Toggles the touch capability of this page's browser context
+    /// (`Browser.setTouchOverride`).
+    ///
+    /// `Some(true)` makes content behave as a touch device (complements
+    /// [`crate::input`]'s `tap`/`touch_event` dispatch); `None` clears
+    /// the override. Must be set before the page needs to observe it.
+    pub async fn set_touch_override(&self, has_touch: Option<bool>) -> Result<()> {
+        self.connection
+            .send_command(
+                None,
+                "Browser.setTouchOverride",
+                crate::emulation::touch_override(self.browser_context_id.as_deref(), has_touch),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
     // -- Local storage -----------------------------------------------------------
 
     /// Captures local storage entries for the current origin.

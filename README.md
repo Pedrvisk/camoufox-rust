@@ -341,6 +341,28 @@ while let Some(event) = events.next().await {
 }
 ```
 
+### Emulation (touch & media)
+
+```rust
+use camoufox_juggler::emulation::{EmulatedMedia, MediaType, ReducedMotion};
+
+// Make the page's context behave as a touch device.
+page.set_touch_override(Some(true)).await?;
+
+// Dark mode / print styles / accessibility emulation.
+page.emulate_media(&EmulatedMedia::dark_mode()).await?;
+page.emulate_media(&EmulatedMedia::print()).await?;
+page.emulate_media(
+    &EmulatedMedia::default()
+        .with_media_type(MediaType::Screen)
+        .with_reduced_motion(ReducedMotion::Reduce),
+).await?;
+
+// Back to browser defaults.
+page.emulate_media(&EmulatedMedia::reset()).await?;
+page.set_touch_override(None).await?;
+```
+
 ## Authenticated proxies
 
 Firefox ignores credentials in `--proxy-server`. Two native paths make
@@ -462,10 +484,19 @@ Implemented in this release:
     `Page.sendMessageToWorker` (the channel Playwright uses to drive a
     full Juggler session inside workers; payloads are conventionally JSON
     strings)
+18. **Touch capability override** — `browser.set_touch_override(ctx,
+    has_touch)` / `page.set_touch_override(has_touch)` toggle a context's
+    touch capability (`Browser.setTouchOverride`), making content behave
+    as a touch device (`pointer: coarse`, DOM touch events) — the missing
+    piece for full mobile emulation alongside the input APIs
+19. **Emulated media & color scheme** — `page.emulate_media(&media)`
+    emulates media type (`screen`/`print`), color scheme, reduced motion,
+    forced colors and contrast (`Page.setEmulatedMedia`), with
+    `EmulatedMedia` presets (`dark_mode`, `print`, `reset`) and builder
+    methods
 
 Ideas for future releases:
 
-- Touch/pointer emulation refinements (`Browser.setTouchOverride`)
-- Emulated media & color scheme (`Page.setEmulatedMedia`)
-- Context-level overrides (geolocation, locale, timezone via
-  `Browser.*Override`)
+- CDP-style DOM helpers (content quads, node adoption) surfaced in Rust
+- Console message capture (`Runtime.console`) with typed levels
+- Crash/close observability surfaced from `Page.crashed`
