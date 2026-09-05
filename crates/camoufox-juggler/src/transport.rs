@@ -128,7 +128,7 @@ async fn spawn_unix(
         });
     }
 
-    let mut child = command.spawn().map_err(|e| {
+    let child = command.spawn().map_err(|e| {
         JugglerError::Io(format!(
             "failed to launch {}: {e}",
             prepared.executable_path.display()
