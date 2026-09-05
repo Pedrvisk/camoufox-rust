@@ -22,7 +22,7 @@ type DownloadSubscribers =
 /// A running Camoufox driven through the native Juggler pipe.
 pub struct JugglerBrowser {
     /// The browser process.
-    pub child: tokio::process::Child,
+    pub child: crate::process::BrowserProcess,
     /// Everything a launch resolved (fingerprint, env, prefs…).
     pub prepared: PreparedLaunch,
     /// The virtual display backing the process, when one was started.
@@ -41,7 +41,7 @@ pub struct JugglerBrowser {
 impl JugglerBrowser {
     /// Wraps a live connection (called by the driver).
     pub(crate) fn new(
-        child: tokio::process::Child,
+        child: crate::process::BrowserProcess,
         prepared: PreparedLaunch,
         virtual_display: Option<camoufox_virtdisplay::VirtualDisplay>,
         connection: Arc<Connection>,

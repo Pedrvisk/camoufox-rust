@@ -79,6 +79,7 @@ pub mod network;
 pub mod orchestrator;
 pub mod page;
 pub mod permission;
+pub mod process;
 pub mod protocol;
 pub mod screencast;
 pub mod transport;
