@@ -47,6 +47,10 @@ struct SendHandle(windows_sys::Win32::Foundation::HANDLE);
 #[cfg(windows)]
 unsafe impl Send for SendHandle {}
 
+// Um HANDLE de processo é apenas um valor do kernel; operações como
+// WaitForSingleObject/TerminateProcess são seguras de qualquer thread.
+unsafe impl Sync for SendHandle {}
+
 /// A spawned browser process with the small API the driver needs:
 /// [`BrowserProcess::id`], [`BrowserProcess::try_wait`],
 /// [`BrowserProcess::wait`], [`BrowserProcess::kill`] plus taking the
