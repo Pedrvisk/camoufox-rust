@@ -555,6 +555,58 @@ impl JugglerPage {
         Ok(self.url().unwrap_or_else(|| url.to_string()))
     }
 
+    /// Navigates to `url` without waiting for the load event.
+    ///
+    /// Unlike [`JugglerPage::goto`] (which blocks until the page fully
+    /// loads), this only waits for the navigation to commit — the caller
+    /// proceeds as soon as the DOM is arriving (e.g. wait for a selector
+    /// next). Cuts the "full load" latency of heavy pages (trackers,
+    /// assets) from the critical path.
+    pub async fn navigate(&self, url: &str) -> Result<String> {
+        self.wait_until(
+            || self.main_frame_id().is_some(),
+            Duration::from_secs(10),
+            "main frame",
+        )
+        .await?;
+        let main_frame = self
+            .main_frame_id()
+            .ok_or_else(|| JugglerError::Protocol("main frame disappeared".into()))?;
+
+        let result = self
+            .connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.navigate",
+                protocol::navigate(&main_frame, url, None),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        let navigation_id = result
+            .get("navigationId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
+        // Wait for our navigation to commit (or a same-document navigation).
+        self.wait_until(
+            || {
+                navigation_id.as_deref().map_or(true, |id| {
+                    self.state
+                        .commits
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|(_, frame, nav)| frame == &main_frame && nav == id)
+                }) || self.url().as_deref() == Some(url)
+            },
+            Duration::from_secs(30),
+            "navigation commit",
+        )
+        .await?;
+
+        Ok(self.url().unwrap_or_else(|| url.to_string()))
+    }
+
     /// Returns a usable execution context for the main frame.
     async fn execution_context(&self) -> Result<String> {
         self.wait_until(
