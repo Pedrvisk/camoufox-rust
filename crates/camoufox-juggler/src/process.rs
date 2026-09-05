@@ -140,9 +140,7 @@ impl BrowserProcess {
         let handle = SendHandle(self.inner.process.0);
         let waited = tokio::task::spawn_blocking(move || {
             // WAIT_FAILED is the only failure mode; the handle is valid.
-            unsafe {
-                windows_sys::Win32::System::Threading::WaitForSingleObject(handle.0, u32::MAX)
-            }
+            unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(handle.0, u32::MAX) }
         })
         .await
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -157,9 +155,9 @@ impl BrowserProcess {
     pub async fn kill(&mut self) -> io::Result<()> {
         use windows_sys::Win32::System::Threading::TerminateProcess;
 
-        let handle = self.inner.process.0;
+        let handle = SendHandle(self.inner.process.0);
         unsafe {
-            if TerminateProcess(handle, 1) == 0 {
+            if TerminateProcess(handle.0, 1) == 0 {
                 // Already dead: treat as success.
                 return Ok(());
             }

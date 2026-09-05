@@ -1,14 +1,16 @@
 //! Pipe transport: spawns the browser with the Juggler pipe wired up.
 //!
-//! Firefox's `--juggler-pipe` mode reads commands and writes
-//! responses/events over a pair of pipes, carrying NUL-delimited UTF-8 JSON
-//! frames (see Playwright's `PipeTransport`).
+//! Firefox's `--juggler-pipe` mode reads commands from fd 3 and writes
+//! responses/events to fd 4, carrying NUL-delimited UTF-8 JSON frames
+//! (see Playwright's `PipeTransport`).
 //!
 //! - **Unix**: the pipes are moved onto FDs 3/4 in a `pre_exec` hook.
-//! - **Windows**: the Juggler patch reads the *inheritable OS handles* of
-//!   both pipes from the `PW_PIPE_READ`/`PW_PIPE_WRITE` environment
-//!   variables (see `nsRemoteDebuggingPipe.cpp` in Playwright's Firefox
-//!   patch — Camoufox embeds the same patch).
+//! - **Windows**: the pipes are delivered as CRT file descriptors 3/4
+//!   through the MSVCRT fd-inheritance protocol — a blob in
+//!   `STARTUPINFO.lpReserved2` (`int count; u8 crt_flags[count]; HANDLE
+//!   os_handle[count]`, the same layout libuv writes when Node spawns
+//!   Firefox). The browser's MSVCRT turns the handles into real fds,
+//!   which the Juggler patch reads via `_get_osfhandle`.
 
 #[cfg(unix)]
 use std::process::Stdio;
@@ -16,6 +18,7 @@ use std::process::Stdio;
 use camoufox::builder::PreparedLaunch;
 
 use crate::error::{JugglerError, Result};
+use crate::process::BrowserProcess;
 
 /// The ready line Firefox prints once the pipe is listening.
 pub const JUGGLER_READY_LINE: &str = "Juggler listening to the pipe";
@@ -23,10 +26,10 @@ pub const JUGGLER_READY_LINE: &str = "Juggler listening to the pipe";
 /// A spawned browser process with the Juggler pipe wired up.
 pub struct PipeTransport {
     /// The browser process.
-    pub child: tokio::process::Child,
-    /// Write end → browser command input.
+    pub child: BrowserProcess,
+    /// Write end → browser command input (fd 3 on the browser side).
     pub write: tokio::fs::File,
-    /// Read end ← browser responses/events.
+    /// Read end ← browser responses/events (fd 4 on the browser side).
     pub read: tokio::fs::File,
     /// Set once the browser printed the ready line.
     pub ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -81,15 +84,6 @@ fn common_args(
     args
 }
 
-fn apply_common_env(command: &mut tokio::process::Command, prepared: &PreparedLaunch) {
-    for (key, value) in &prepared.env {
-        command.env(key, value);
-    }
-    // Remove SNAP variables that confuse Firefox (Playwright parity).
-    command.env_remove("SNAP_NAME");
-    command.env_remove("SNAP_INSTANCE_NAME");
-}
-
 #[cfg(unix)]
 async fn spawn_unix(
     prepared: &PreparedLaunch,
@@ -139,6 +133,7 @@ async fn spawn_unix(
     drop(a_read);
     drop(b_write);
 
+    let child = BrowserProcess::from_child(child);
     let (child, ready) = spawn_output_drain(child);
     Ok(PipeTransport {
         child,
@@ -148,8 +143,9 @@ async fn spawn_unix(
     })
 }
 
-/// Spawns the browser with the pipe handles passed via environment
-/// variables, as the Windows Juggler patch expects.
+/// Spawns the browser on Windows, delivering the pipe pair as CRT fds 3/4
+/// through `STARTUPINFO.lpReserved2` (the mechanism Node/libuv uses when
+/// Playwright launches Firefox — see libuv's `src/win/process-stdio.c`).
 #[cfg(windows)]
 async fn spawn_windows(
     prepared: &PreparedLaunch,
@@ -157,99 +153,255 @@ async fn spawn_windows(
     headless: bool,
     extra_args: &[String],
 ) -> Result<PipeTransport> {
+    use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::FromRawHandle;
-
-    // Command pipe: browser reads ← we write. Response pipe: browser
-    // writes → we read. `CreatePipe` + inheritable browser-facing ends
-    // mirrors what Playwright passes as stdio[3]/stdio[4].
-    let (cmd_read, cmd_write) = create_anon_pipe()?;
-    let (rsp_read, rsp_write) = create_anon_pipe()?;
-
-    let args = common_args(prepared, profile_dir, headless, extra_args);
-
-    let mut command = tokio::process::Command::new(&prepared.executable_path);
-    command
-        .args(&args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    apply_common_env(&mut command, prepared);
-    // The Juggler Windows patch turns these values into HANDLEs.
-    command.env("PW_PIPE_READ", handle_to_env(cmd_read));
-    command.env("PW_PIPE_WRITE", handle_to_env(rsp_write));
-
-    let child = command.spawn().map_err(|e| {
-        // The browser never started: release the browser-facing handles.
-        unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(cmd_read);
-            windows_sys::Win32::Foundation::CloseHandle(rsp_write);
-        }
-        JugglerError::Io(format!(
-            "failed to launch {}: {e}",
-            prepared.executable_path.display()
-        ))
-    })?;
-
-    // Wrap our ends for async IO before dropping the raw handles.
-    let write = unsafe { std::fs::File::from_raw_handle(cmd_write) };
-    let read = unsafe { std::fs::File::from_raw_handle(rsp_read) };
-    let write = tokio::fs::File::from(write);
-    let read = tokio::fs::File::from(read);
-
-    // The browser holds its own ends; nothing to close manually (the raw
-    // handle wrappers were moved into the Files above).
-
-    let (child, ready) = spawn_output_drain(child);
-    Ok(PipeTransport {
-        child,
-        write,
-        read,
-        ready,
-    })
-}
-
-/// Formats a pipe handle as the env value the Juggler patch parses.
-#[cfg(windows)]
-fn handle_to_env(handle: windows_sys::Win32::Foundation::HANDLE) -> String {
-    (handle as usize).to_string()
-}
-
-/// `CreatePipe` with an inheritable security descriptor.
-#[cfg(windows)]
-fn create_anon_pipe() -> Result<Handle> {
-    use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Foundation::TRUE;
+    use windows_sys::Win32::Foundation::{GENERIC_READ, HANDLE, TRUE};
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, SetHandleInformation, FILE_SHARE_READ, FILE_SHARE_WRITE, HANDLE_FLAG_INHERIT,
+        OPEN_EXISTING,
+    };
     use windows_sys::Win32::System::Pipes::CreatePipe;
+    use windows_sys::Win32::System::Threading::{
+        CreateProcessW, CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
+        STARTUPINFOW,
+    };
 
-    let security = SECURITY_ATTRIBUTES {
+    // MSVCRT fd flags (see libuv's process-stdio.c).
+    const FOPEN: u8 = 0x01;
+    const FPIPE: u8 = 0x08;
+    const FDEV: u8 = 0x40;
+
+    let inheritable = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
         lpSecurityDescriptor: std::ptr::null_mut(),
         bInheritHandle: TRUE,
     };
-    let mut read: HANDLE = std::ptr::null_mut();
-    let mut write: HANDLE = std::ptr::null_mut();
-    let ok = unsafe { CreatePipe(&mut read, &mut write, &security, 0) };
-    if ok == 0 {
+
+    let create_pipe = || -> Result<(HANDLE, HANDLE)> {
+        let mut read: HANDLE = std::ptr::null_mut();
+        let mut write: HANDLE = std::ptr::null_mut();
+        if unsafe { CreatePipe(&mut read, &mut write, &inheritable, 0) } == 0 {
+            return Err(JugglerError::Io(format!(
+                "CreatePipe failed: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        Ok((read, write))
+    };
+
+    // stdout / stderr: parent reads, browser writes.
+    let (stdout_read, stdout_write) = create_pipe()?;
+    let (stderr_read, stderr_write) = create_pipe()?;
+    // Commands: parent writes (cmd_write), browser reads fd 3 (cmd_read).
+    let (cmd_read, cmd_write) = create_pipe()?;
+    // Responses: browser writes fd 4 (rsp_write), parent reads (rsp_read).
+    let (rsp_read, rsp_write) = create_pipe()?;
+
+    // The parent-side ends must not leak into the browser: mark them
+    // non-inheritable so EOF semantics work when either side exits.
+    let no_inherit = |handle: HANDLE| {
+        unsafe {
+            SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+        }
+    };
+    no_inherit(stdout_read);
+    no_inherit(stderr_read);
+    no_inherit(cmd_write);
+    no_inherit(rsp_read);
+
+    // fd 0: the NUL device (Firefox expects a readable stdin).
+    let nul_path: Vec<u16> = "NUL".encode_utf16().chain(std::iter::once(0)).collect();
+    let nul = unsafe {
+        CreateFileW(
+            nul_path.as_ptr(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            &inheritable,
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if nul.is_null() {
         return Err(JugglerError::Io(format!(
-            "CreatePipe failed: {}",
+            "CreateFile(NUL) failed: {}",
             std::io::Error::last_os_error()
         )));
     }
-    Ok((read, write))
+
+    // The child stdio blob the MSVCRT parses at startup:
+    //   int count; u8 crt_flags[count]; HANDLE os_handle[count]
+    let handles = [nul, stdout_write, stderr_write, cmd_read, rsp_write];
+    let flags = [FOPEN | FDEV, FOPEN | FPIPE, FOPEN | FPIPE, FOPEN | FPIPE, FOPEN | FPIPE];
+    let mut blob: Vec<u8> = Vec::with_capacity(4 + flags.len() + handles.len() * 8);
+    blob.extend_from_slice(&(handles.len() as u32).to_le_bytes());
+    blob.extend_from_slice(&flags);
+    for handle in handles {
+        blob.extend_from_slice(&(handle as usize).to_le_bytes());
+    }
+
+    // Command line: application + quoted arguments.
+    let args = common_args(prepared, profile_dir, headless, extra_args);
+    let mut cmdline = quote_windows_arg(&prepared.executable_path.to_string_lossy());
+    for arg in &args {
+        cmdline.push(' ');
+        cmdline.push_str(&quote_windows_arg(arg));
+    }
+    let mut cmdline_utf16: Vec<u16> = cmdline.encode_utf16().chain(std::iter::once(0)).collect();
+    let application_utf16: Vec<u16> = prepared
+        .executable_path
+        .as_os_str()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    // Environment block (current env + launch overrides, SNAP vars removed).
+    let environment = build_environment_block(prepared);
+
+    let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
+    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = nul;
+    startup.hStdOutput = stdout_write;
+    startup.hStdError = stderr_write;
+    startup.cbReserved2 = blob.len() as u16;
+    startup.lpReserved2 = blob.as_mut_ptr();
+
+    let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    let created = unsafe {
+        CreateProcessW(
+            application_utf16.as_ptr(),
+            cmdline_utf16.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            TRUE, // bInheritHandles: the CRT handles reach the child.
+            CREATE_UNICODE_ENVIRONMENT,
+            environment.as_ptr() as *const _,
+            std::ptr::null(),
+            &startup,
+            &mut info,
+        )
+    };
+    if created == 0 {
+        let error = std::io::Error::last_os_error();
+        unsafe {
+            for handle in handles {
+                windows_sys::Win32::Foundation::CloseHandle(handle);
+            }
+            for handle in [stdout_read, stderr_read, cmd_write, rsp_read] {
+                windows_sys::Win32::Foundation::CloseHandle(handle);
+            }
+        }
+        return Err(JugglerError::Io(format!(
+            "failed to launch {}: {error}",
+            prepared.executable_path.display()
+        )));
+    }
+
+    unsafe {
+        // The main thread handle is not needed.
+        windows_sys::Win32::Foundation::CloseHandle(info.hThread);
+        // The browser owns its own copies now; drop ours so pipe EOF
+        // propagates when either side exits.
+        for handle in handles {
+            windows_sys::Win32::Foundation::CloseHandle(handle);
+        }
+    }
+
+    let file = |handle: HANDLE| {
+        let file = std::fs::File::from_raw_handle(handle);
+        tokio::fs::File::from(file)
+    };
+
+    let mut child = BrowserProcess::from_raw(info.dwProcessId, info.hProcess);
+    child.stdout = Some(file(stdout_read));
+    child.stderr = Some(file(stderr_read));
+    let (child, ready) = spawn_output_drain(child);
+
+    Ok(PipeTransport {
+        child,
+        write: file(cmd_write),
+        read: file(rsp_read),
+        ready,
+    })
 }
 
-/// Raw Win32 pipe handle pair (read, write).
+/// Builds the UTF-16 environment block for `CreateProcessW` (the current
+/// environment plus the launch overrides, with Firefox-hostile SNAP
+/// variables removed).
 #[cfg(windows)]
-type Handle = (
-    windows_sys::Win32::Foundation::HANDLE,
-    windows_sys::Win32::Foundation::HANDLE,
-);
+fn build_environment_block(prepared: &PreparedLaunch) -> Vec<u16> {
+    let mut vars: std::collections::BTreeMap<String, String> = std::env::vars_os()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+    vars.remove("SNAP_NAME");
+    vars.remove("SNAP_INSTANCE_NAME");
+    for (key, value) in &prepared.env {
+        vars.insert(key.clone(), value.clone());
+    }
+    let mut block: Vec<u16> = Vec::new();
+    for (key, value) in &vars {
+        block.extend(key.encode_utf16());
+        block.push('=' as u16);
+        block.extend(value.encode_utf16());
+        block.push(0);
+    }
+    block.push(0);
+    block
+}
+
+/// Quotes one command-line argument following the MS `argv` parsing rules.
+#[cfg(windows)]
+fn quote_windows_arg(arg: &str) -> String {
+    if arg.is_empty() {
+        return "\"\"".into();
+    }
+    if !arg.contains([' ', '\t', '"']) {
+        return arg.to_string();
+    }
+    let mut out = String::with_capacity(arg.len() + 2);
+    out.push('"');
+    let mut backslashes = 0usize;
+    for ch in arg.chars() {
+        match ch {
+            '\\' => backslashes += 1,
+            '"' => {
+                out.push_str(&"\\".repeat(backslashes * 2 + 1));
+                backslashes = 0;
+                out.push('"');
+            }
+            other => {
+                out.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                out.push(other);
+            }
+        }
+    }
+    out.push_str(&"\\".repeat(backslashes * 2));
+    out.push('"');
+    out
+}
+
+#[cfg(unix)]
+fn apply_common_env(command: &mut tokio::process::Command, prepared: &PreparedLaunch) {
+    for (key, value) in &prepared.env {
+        command.env(key, value);
+    }
+    // Remove SNAP variables that confuse Firefox (Playwright parity).
+    command.env_remove("SNAP_NAME");
+    command.env_remove("SNAP_INSTANCE_NAME");
+}
 
 fn spawn_output_drain(
-    child: tokio::process::Child,
+    child: BrowserProcess,
 ) -> (
-    tokio::process::Child,
+    BrowserProcess,
     std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     let mut child = child;
@@ -303,7 +455,7 @@ fn move_fd(from: std::os::raw::c_int, to: std::os::raw::c_int) -> std::io::Resul
 
 /// Waits for the `Juggler listening to the pipe` line (readiness probe).
 pub async fn wait_ready(
-    child: &mut tokio::process::Child,
+    child: &mut BrowserProcess,
     ready: &std::sync::atomic::AtomicBool,
     timeout: std::time::Duration,
 ) -> Result<()> {
@@ -326,8 +478,8 @@ pub async fn wait_ready(
     }
 }
 
-async fn drain_stdout(
-    stdout: tokio::process::ChildStdout,
+async fn drain_stdout<R: tokio::io::AsyncRead + Unpin>(
+    stdout: R,
     ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     use tokio::io::AsyncBufReadExt;
@@ -341,7 +493,7 @@ async fn drain_stdout(
     }
 }
 
-async fn drain_stderr(stderr: tokio::process::ChildStderr) {
+async fn drain_stderr<R: tokio::io::AsyncRead + Unpin>(stderr: R) {
     use tokio::io::AsyncBufReadExt;
     let mut lines = tokio::io::BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
