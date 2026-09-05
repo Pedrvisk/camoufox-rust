@@ -44,6 +44,11 @@ struct PageState {
         Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::screencast::ScreencastFrame>>>,
     /// Broadcast senders for worker events.
     worker_broadcast: Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::worker::WorkerEvent>>>,
+    /// Broadcast senders for console messages.
+    console_broadcast:
+        Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::console::ConsoleMessage>>>,
+    /// Whether the page crashed (`Page.crashed`).
+    crashed: AtomicBool,
 }
 
 /// Data captured from a `Page.fileChooserOpened` event.
@@ -373,6 +378,18 @@ impl JugglerPage {
                         message,
                     });
                 }
+            }
+            "Runtime.console" => {
+                if let Some(message) = crate::console::decode_console(params) {
+                    let mut senders = self.state.console_broadcast.lock().unwrap();
+                    senders.retain(|sender| {
+                        let _ = sender.send(message.clone());
+                        !sender.is_closed()
+                    });
+                }
+            }
+            "Page.crashed" => {
+                self.state.crashed.store(true, Ordering::Release);
             }
             "Browser.detachedFromTarget"
                 if str_field(params, "targetId").as_deref() == Some(&self.target_id) =>
@@ -1106,6 +1123,169 @@ impl JugglerPage {
             )
             .await?;
         Ok(())
+    }
+
+    // -- DOM ---------------------------------------------------------------------
+
+    /// Evaluates a CSS selector and returns the element's remote object
+    /// id (`returnByValue: false` evaluation).
+    ///
+    /// `Ok(None)` means the selector matched nothing. The object id stays
+    /// valid until the node is removed or the context is destroyed by a
+    /// navigation.
+    pub async fn query_object_id(&self, selector: &str) -> Result<Option<String>> {
+        let expression = format!(
+            "document.querySelector({})",
+            serde_json::to_string(selector)?
+        );
+        let result = self.evaluate_remote_object(&expression).await?;
+        crate::dom::object_id_of(&result)
+    }
+
+    /// Content quads of an element by object id (`Page.getContentQuads`).
+    ///
+    /// Quads describe the element's layout box — possibly transformed or
+    /// rotated; see [`crate::dom::Quad::bounding_box`] and
+    /// [`crate::dom::Quad::center`] for click targeting.
+    pub async fn content_quads(&self, object_id: &str) -> Result<Vec<crate::dom::Quad>> {
+        let frame_id = self
+            .main_frame_id()
+            .ok_or_else(|| JugglerError::Protocol("no main frame".into()))?;
+        let result = self
+            .connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.getContentQuads",
+                serde_json::json!({"frameId": frame_id, "objectId": object_id}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        crate::dom::decode_quads(&result)
+    }
+
+    /// Content quads of the first element matching `selector`
+    /// (`None` when the selector matches nothing).
+    pub async fn element_quads(&self, selector: &str) -> Result<Option<Vec<crate::dom::Quad>>> {
+        match self.query_object_id(selector).await? {
+            Some(object_id) => Ok(Some(self.content_quads(&object_id).await?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Scrolls an element into view if needed
+    /// (`Page.scrollIntoViewIfNeeded`).
+    pub async fn scroll_into_view(&self, object_id: &str) -> Result<()> {
+        let frame_id = self
+            .main_frame_id()
+            .ok_or_else(|| JugglerError::Protocol("no main frame".into()))?;
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.scrollIntoViewIfNeeded",
+                serde_json::json!({"frameId": frame_id, "objectId": object_id}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Describes a node (`Page.describeNode`): which frame owns it and,
+    /// for iframes, the content frame id.
+    pub async fn describe_node(&self, object_id: &str) -> Result<crate::dom::NodeDescription> {
+        let frame_id = self
+            .main_frame_id()
+            .ok_or_else(|| JugglerError::Protocol("no main frame".into()))?;
+        let result = self
+            .connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.describeNode",
+                serde_json::json!({"frameId": frame_id, "objectId": object_id}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(crate::dom::decode_node_description(&result))
+    }
+
+    /// Adopts a node into another execution context (`Page.adoptNode`),
+    /// returning the new object id (`None` when the node is detached).
+    pub async fn adopt_node(
+        &self,
+        object_id: &str,
+        to_execution_context: &str,
+    ) -> Result<Option<String>> {
+        let frame_id = self
+            .main_frame_id()
+            .ok_or_else(|| JugglerError::Protocol("no main frame".into()))?;
+        let result = self
+            .connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.adoptNode",
+                serde_json::json!({
+                    "frameId": frame_id,
+                    "objectId": object_id,
+                    "executionContextId": to_execution_context,
+                }),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(result
+            .pointer("/remoteObject/objectId")
+            .and_then(Value::as_str)
+            .map(str::to_string))
+    }
+
+    /// Evaluates an expression keeping the result as a remote object
+    /// (`returnByValue: false`); returns the raw protocol result.
+    async fn evaluate_remote_object(&self, expression: &str) -> Result<Value> {
+        let context = self.execution_context().await?;
+        let result = self
+            .connection
+            .send_command(
+                Some(&self.session_id),
+                "Runtime.evaluate",
+                protocol::evaluate(&context, expression, false),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        if let Some(details) = result.get("exceptionDetails") {
+            let text = details
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("exception");
+            return Err(JugglerError::Protocol(format!("evaluation failed: {text}")));
+        }
+        Ok(result)
+    }
+
+    // -- Console & lifecycle -----------------------------------------------------
+
+    /// Subscribes to console messages (`Runtime.console`).
+    ///
+    /// Messages flow while page commands run (the same pump model as
+    /// [`JugglerPage::network_events`]).
+    pub fn console_messages(&self) -> crate::console::ConsoleEvents {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.state.console_broadcast.lock().unwrap().push(tx);
+        crate::console::ConsoleEvents::new(rx)
+    }
+
+    /// Whether the page crashed (`Page.crashed`).
+    pub fn is_crashed(&self) -> bool {
+        self.state.crashed.load(Ordering::Acquire)
+    }
+
+    /// Waits until the page crashes (tab crash renderer).
+    pub async fn wait_for_crash(&self, timeout: Duration) -> Result<()> {
+        self.wait_until(|| self.is_crashed(), timeout, "page crash")
+            .await
+    }
+
+    /// Waits until the target is detached (page closed).
+    pub async fn wait_for_close(&self, timeout: Duration) -> Result<()> {
+        self.wait_until(|| self.is_detached(), timeout, "page close")
+            .await
     }
 
     // -- Local storage -----------------------------------------------------------

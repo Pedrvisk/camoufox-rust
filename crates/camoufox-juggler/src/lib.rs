@@ -66,6 +66,8 @@
 
 pub mod browser;
 pub mod connection;
+pub mod console;
+pub mod dom;
 pub mod download;
 pub mod driver;
 pub mod emulation;
@@ -83,6 +85,8 @@ pub mod worker;
 
 pub use browser::JugglerBrowser;
 pub use connection::{Connection, DEFAULT_COMMAND_TIMEOUT};
+pub use console::{ConsoleEvents, ConsoleLevel, ConsoleMessage};
+pub use dom::{NodeDescription, Point, Quad};
 pub use download::{
     DownloadBehavior, DownloadCreated, DownloadEvent, DownloadEvents, DownloadFinished,
 };

@@ -363,6 +363,47 @@ page.emulate_media(&EmulatedMedia::reset()).await?;
 page.set_touch_override(None).await?;
 ```
 
+### DOM helpers
+
+```rust
+// Element geometry by selector (None when it matches nothing).
+if let Some(quads) = page.element_quads("button#submit").await? {
+    let (x, y, width, height) = quads[0].bounding_box();
+    println!("button at ({x}, {y}) {width}x{height}");
+    let center = quads[0].center();
+    page.click(center.x, center.y).await?;
+}
+
+// Or by object id, with scroll-into-view first.
+if let Some(object_id) = page.query_object_id("iframe.widget").await? {
+    page.scroll_into_view(&object_id).await?;
+    let description = page.describe_node(&object_id).await?;
+    if let Some(frame_id) = description.content_frame_id {
+        println!("iframe's frame: {frame_id}");
+    }
+}
+```
+
+### Console & crash observability
+
+```rust
+let mut console = page.console_messages();
+page.goto("https://example.com").await?;
+
+while let Some(message) = console.next().await {
+    if message.level == camoufox_juggler::ConsoleLevel::Error {
+        println!(
+            "console error at {}:{}: {}",
+            message.url, message.line, message.text()
+        );
+    }
+}
+
+// Tab crash / close observability:
+if page.is_crashed() { /* renderer died */ }
+page.wait_for_close(std::time::Duration::from_secs(30)).await?;
+```
+
 ## Authenticated proxies
 
 Firefox ignores credentials in `--proxy-server`. Two native paths make
@@ -494,9 +535,27 @@ Implemented in this release:
     forced colors and contrast (`Page.setEmulatedMedia`), with
     `EmulatedMedia` presets (`dark_mode`, `print`, `reset`) and builder
     methods
+20. **DOM helpers** — `page.query_object_id(selector)` resolves elements
+    to remote object ids; `page.content_quads` / `page.element_quads`
+    fetch layout geometry (`Page.getContentQuads`, with
+    `bounding_box`/`center` helpers for click targeting);
+    `page.scroll_into_view`, `page.describe_node` (owner/content frame)
+    and `page.adopt_node` (cross-context node adoption)
+21. **Console capture** — `page.console_messages()` streams
+    `Runtime.console` events as typed `ConsoleMessage`s: level
+    (log/info/warning/error/debug/trace/…), rendered arguments, source
+    URL/line/column; Juggler's internal `warn` is normalized to
+    `warning` (Playwright parity)
+22. **Crash/close observability** — `page.is_crashed()` /
+    `page.wait_for_crash(timeout)` surface `Page.crashed` (tab crashes),
+    and `page.wait_for_close(timeout)` waits for target detachment
+    (`Browser.detachedFromTarget`)
 
 Ideas for future releases:
 
-- CDP-style DOM helpers (content quads, node adoption) surfaced in Rust
-- Console message capture (`Runtime.console`) with typed levels
-- Crash/close observability surfaced from `Page.crashed`
+- Window management surfaced from `Page.setViewportSize` / `setZoom` /
+  `bringToFront`
+- Page bindings (`Page.addBinding` + `bindingCalled` events)
+- Context permissions (`Browser.grantPermissions` / `resetPermissions`)
+- Extra HTTP headers and cache control (`Browser.setExtraHTTPHeaders`,
+  `clearCache`)
