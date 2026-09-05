@@ -404,6 +404,37 @@ if page.is_crashed() { /* renderer died */ }
 page.wait_for_close(std::time::Duration::from_secs(30)).await?;
 ```
 
+### Window management, bindings, permissions & headers
+
+```rust
+use camoufox_juggler::Permission;
+
+// Viewport / zoom / tab focus.
+page.set_viewport_size(1280, 720).await?;
+page.set_zoom(1.5).await?;
+page.bring_to_front().await?;
+
+// Expose a function into the page and await its calls.
+let mut calls = page.binding_calls();
+page.add_binding("rustReady").await?;
+page.evaluate("rustReady({ state: 'loaded', url: location.href })").await?;
+if let Some(call) = calls.next().await {
+    println!("page says: {}", call.payload["state"]);
+}
+
+// Grant geolocation + notifications for an origin.
+browser.grant_permissions(
+    None, // default context
+    "https://example.com",
+    &[Permission::Geolocation, Permission::DesktopNotification],
+).await?;
+
+// Extra headers (context-wide) and cache control.
+browser.set_extra_http_headers(None, &[("X-Custom".into(), "1".into())]).await?;
+browser.clear_cache().await?;
+browser.set_cache_disabled(None, true).await?;
+```
+
 ## Authenticated proxies
 
 Firefox ignores credentials in `--proxy-server`. Two native paths make
@@ -550,12 +581,29 @@ Implemented in this release:
     `page.wait_for_crash(timeout)` surface `Page.crashed` (tab crashes),
     and `page.wait_for_close(timeout)` waits for target detachment
     (`Browser.detachedFromTarget`)
+23. **Window management** — `page.set_viewport_size(w, h)` /
+    `page.reset_viewport()` (`Page.setViewportSize`), `page.set_zoom(z)`
+    (`Page.setZoom`, validated against the browser's 0.3–5.0 range) and
+    `page.bring_to_front()` (`Page.bringToFront`)
+24. **Page bindings** — `page.add_binding(name)` exposes
+    `window.<name>` into every execution context (`Page.addBinding`);
+    invocations stream through `page.binding_calls()` as `BindingCall`s
+    (name + first-argument payload); `add_binding_with_script` supports
+    custom worlds and setup scripts for promise-based wrappers
+25. **Context permissions** — `browser.grant_permissions(ctx, origin,
+    &[Permission])` grants Firefox's supported set (geolocation,
+    desktop notifications, local/loopback network) per origin or `'*'`
+    (`Browser.grantPermissions`); `browser.reset_permissions(ctx)`
+    clears them
+26. **Extra HTTP headers & cache control** — context-level
+    `browser.set_extra_http_headers(ctx, headers)` and page-level
+    `page.set_extra_http_headers(headers)`
+    (`Browser.setExtraHTTPHeaders` / `Network.setExtraHTTPHeaders`),
+    plus `browser.clear_cache()` and `browser.set_cache_disabled(ctx,
+    disabled)`
 
 Ideas for future releases:
 
-- Window management surfaced from `Page.setViewportSize` / `setZoom` /
-  `bringToFront`
-- Page bindings (`Page.addBinding` + `bindingCalled` events)
-- Context permissions (`Browser.grantPermissions` / `resetPermissions`)
-- Extra HTTP headers and cache control (`Browser.setExtraHTTPHeaders`,
-  `clearCache`)
+- Drag & drop dispatch (`Page.dispatchDragEvent`)
+- HTTP basic auth credentials (`Browser.setHTTPCredentials`)
+- Online/offline emulation (`Browser.setOnlineOverride`)

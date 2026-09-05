@@ -47,6 +47,8 @@ struct PageState {
     /// Broadcast senders for console messages.
     console_broadcast:
         Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::console::ConsoleMessage>>>,
+    /// Broadcast senders for binding calls.
+    binding_broadcast: Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::binding::BindingCall>>>,
     /// Whether the page crashed (`Page.crashed`).
     crashed: AtomicBool,
 }
@@ -384,6 +386,15 @@ impl JugglerPage {
                     let mut senders = self.state.console_broadcast.lock().unwrap();
                     senders.retain(|sender| {
                         let _ = sender.send(message.clone());
+                        !sender.is_closed()
+                    });
+                }
+            }
+            "Page.bindingCalled" => {
+                if let Some(call) = crate::binding::decode_binding_call(params) {
+                    let mut senders = self.state.binding_broadcast.lock().unwrap();
+                    senders.retain(|sender| {
+                        let _ = sender.send(call.clone());
                         !sender.is_closed()
                     });
                 }
@@ -1286,6 +1297,130 @@ impl JugglerPage {
     pub async fn wait_for_close(&self, timeout: Duration) -> Result<()> {
         self.wait_until(|| self.is_detached(), timeout, "page close")
             .await
+    }
+
+    // -- Bindings ----------------------------------------------------------------
+
+    /// Exposes `window.<name>` in every execution context
+    /// (`Page.addBinding`).
+    ///
+    /// When the page calls it, a [`crate::binding::BindingCall`] surfaces
+    /// on [`JugglerPage::binding_calls`] — the payload is the **first
+    /// argument** the page passed. The function returns nothing to the
+    /// page; wrap it yourself with
+    /// [`JugglerPage::add_binding_with_script`] if the page needs a
+    /// promise-based API.
+    pub async fn add_binding(&self, name: &str) -> Result<()> {
+        self.add_binding_inner(None, name, "").await
+    }
+
+    /// [`JugglerPage::add_binding`] with an optional world and a setup
+    /// script evaluated in every new execution context (e.g. to replace
+    /// the one-shot native function with a promise-based wrapper).
+    pub async fn add_binding_with_script(
+        &self,
+        world_name: Option<&str>,
+        name: &str,
+        script: &str,
+    ) -> Result<()> {
+        self.add_binding_inner(world_name, name, script).await
+    }
+
+    async fn add_binding_inner(
+        &self,
+        world_name: Option<&str>,
+        name: &str,
+        script: &str,
+    ) -> Result<()> {
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.addBinding",
+                crate::binding::add_binding(world_name, name, script),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Subscribes to binding invocations (`Page.bindingCalled`).
+    pub fn binding_calls(&self) -> crate::binding::BindingCalls {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.state.binding_broadcast.lock().unwrap().push(tx);
+        crate::binding::BindingCalls::new(rx)
+    }
+
+    // -- Window management -------------------------------------------------------
+
+    /// Sets the viewport size (`Page.setViewportSize`).
+    ///
+    /// The browser window is resized to fit; CSS `@viewport`/media
+    /// queries observe the new size.
+    pub async fn set_viewport_size(&self, width: u32, height: u32) -> Result<()> {
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.setViewportSize",
+                protocol::viewport_size(width, height),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Removes the viewport override: the window returns to its natural
+    /// size (`Page.setViewportSize` with `null`).
+    pub async fn reset_viewport(&self) -> Result<()> {
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.setViewportSize",
+                serde_json::json!({"viewportSize": null}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Sets the page zoom (`Page.setZoom`).
+    ///
+    /// Must be within `0.3..=5.0` (the browser's own limits); the device
+    /// pixel ratio is adjusted to match.
+    pub async fn set_zoom(&self, zoom: f64) -> Result<()> {
+        if !(0.3..=5.0).contains(&zoom) {
+            return Err(JugglerError::Protocol(
+                "zoom must be between 0.3 and 5".into(),
+            ));
+        }
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.setZoom",
+                serde_json::json!({"zoom": zoom}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    // -- Extra HTTP headers ------------------------------------------------------
+
+    /// Sets extra HTTP headers for this page's requests
+    /// (`Network.setExtraHTTPHeaders`).
+    ///
+    /// Replaces the previous page-level headers; an empty list clears
+    /// them. Context-wide headers come from
+    /// [`crate::browser::JugglerBrowser::set_extra_http_headers`].
+    pub async fn set_extra_http_headers(&self, headers: &[(String, String)]) -> Result<()> {
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Network.setExtraHTTPHeaders",
+                serde_json::json!({"headers": headers}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
     }
 
     // -- Local storage -----------------------------------------------------------

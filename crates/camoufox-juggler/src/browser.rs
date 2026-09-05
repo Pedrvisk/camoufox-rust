@@ -147,6 +147,103 @@ impl JugglerBrowser {
         Ok(())
     }
 
+    /// Grants permissions to an origin (`Browser.grantPermissions`).
+    ///
+    /// `origin` is `'*'` (every origin) or a URL prefix (e.g.
+    /// `https://example.com`); pages whose URL starts with it receive the
+    /// permissions. `browser_context_id: None` targets the default
+    /// context.
+    pub async fn grant_permissions(
+        &self,
+        browser_context_id: Option<&str>,
+        origin: &str,
+        permissions: &[crate::permission::Permission],
+    ) -> Result<()> {
+        self.connection
+            .send_command(
+                None,
+                "Browser.grantPermissions",
+                crate::permission::grant(browser_context_id, origin, permissions),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Resets all granted permissions (`Browser.resetPermissions`).
+    pub async fn reset_permissions(&self, browser_context_id: Option<&str>) -> Result<()> {
+        self.connection
+            .send_command(
+                None,
+                "Browser.resetPermissions",
+                crate::permission::reset(browser_context_id),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Sets extra HTTP headers for a whole browser context
+    /// (`Browser.setExtraHTTPHeaders`).
+    ///
+    /// Replaces the previous context-level headers; an empty list clears
+    /// them. Page-level headers come from
+    /// [`crate::page::JugglerPage::set_extra_http_headers`].
+    pub async fn set_extra_http_headers(
+        &self,
+        browser_context_id: Option<&str>,
+        headers: &[(String, String)],
+    ) -> Result<()> {
+        let mut params = serde_json::json!({"headers": headers});
+        if let Some(id) = browser_context_id {
+            params["browserContextId"] = Value::String(id.to_string());
+        }
+        self.connection
+            .send_command(
+                None,
+                "Browser.setExtraHTTPHeaders",
+                params,
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Clears the browser's cache (`Browser.clearCache`).
+    pub async fn clear_cache(&self) -> Result<()> {
+        self.connection
+            .send_command(
+                None,
+                "Browser.clearCache",
+                serde_json::json!({}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Enables/disables the cache for a browser context
+    /// (`Browser.setCacheDisabled`).
+    pub async fn set_cache_disabled(
+        &self,
+        browser_context_id: Option<&str>,
+        disabled: bool,
+    ) -> Result<()> {
+        let mut params = serde_json::json!({"cacheDisabled": disabled});
+        if let Some(id) = browser_context_id {
+            params["browserContextId"] = Value::String(id.to_string());
+        }
+        self.connection
+            .send_command(
+                None,
+                "Browser.setCacheDisabled",
+                params,
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
     /// The underlying connection (advanced use).
     pub fn connection(&self) -> Arc<Connection> {
         self.connection.clone()

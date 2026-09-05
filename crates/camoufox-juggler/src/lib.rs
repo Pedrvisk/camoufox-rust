@@ -64,6 +64,7 @@
 //! # }
 //! ```
 
+pub mod binding;
 pub mod browser;
 pub mod connection;
 pub mod console;
@@ -77,12 +78,14 @@ pub mod input;
 pub mod network;
 pub mod orchestrator;
 pub mod page;
+pub mod permission;
 pub mod protocol;
 pub mod screencast;
 pub mod transport;
 pub mod verify;
 pub mod worker;
 
+pub use binding::{BindingCall, BindingCalls};
 pub use browser::JugglerBrowser;
 pub use connection::{Connection, DEFAULT_COMMAND_TIMEOUT};
 pub use console::{ConsoleEvents, ConsoleLevel, ConsoleMessage};
@@ -102,6 +105,7 @@ pub use network::{
 };
 pub use orchestrator::{OrchestratedSession, Orchestrator, OrchestratorOptions};
 pub use page::{Dialog, FileChooser, JugglerPage};
+pub use permission::Permission;
 pub use screencast::{ScreencastFrame, ScreencastFrames};
 pub use verify::{verify_fingerprint, SurfaceCheck, VerificationReport};
 pub use worker::{WorkerEvent, WorkerEvents, WorkerInfo};
