@@ -16,6 +16,8 @@
 //!   cookies/local storage, exposes network events and intercepts requests
 //! - [`verify_fingerprint`] asserts the running browser's spoofed surfaces
 //!   match the generated fingerprint
+//! - [`Orchestrator`] runs a pool of persona-driven browser sessions with
+//!   rotation policies and persistent rotation state
 //!
 //! ## Example
 //!
@@ -63,7 +65,9 @@ pub mod browser;
 pub mod connection;
 pub mod driver;
 pub mod error;
+pub mod har;
 pub mod network;
+pub mod orchestrator;
 pub mod page;
 pub mod protocol;
 pub mod transport;
@@ -73,9 +77,12 @@ pub use browser::JugglerBrowser;
 pub use connection::{Connection, DEFAULT_COMMAND_TIMEOUT};
 pub use driver::{core_error, into_core, launch_with_juggler};
 pub use error::{JugglerError, Result};
+pub use har::HarLog;
 pub use network::{
     FulfillResponse, InterceptedRequest, NetworkEvent, NetworkEvents, NetworkRequest,
     NetworkRequestFailed, NetworkRequestFinished, NetworkResponseInfo, RouteOverrides,
+    WebSocketFrame, WebSocketInfo,
 };
+pub use orchestrator::{OrchestratedSession, Orchestrator, OrchestratorOptions};
 pub use page::{Dialog, JugglerPage};
 pub use verify::{verify_fingerprint, SurfaceCheck, VerificationReport};

@@ -97,6 +97,9 @@ enum Command {
         /// Dump the captured page content (HTML) to this path.
         #[arg(long)]
         dump_html: Option<PathBuf>,
+        /// Record network traffic and export it as HAR 1.2 to this path.
+        #[arg(long)]
+        har: Option<PathBuf>,
         /// Save the session (cookies + local storage) for the persona.
         #[arg(long)]
         save_session: bool,
@@ -282,6 +285,7 @@ async fn run(cli: Cli) -> Result<()> {
             verify,
             screenshot,
             dump_html,
+            har,
             save_session,
             restore_session,
             hold,
@@ -299,6 +303,7 @@ async fn run(cli: Cli) -> Result<()> {
                 verify,
                 screenshot: screenshot.as_deref(),
                 dump_html: dump_html.as_deref(),
+                har: har.as_deref(),
                 save_session,
                 restore_session,
                 hold,
@@ -339,6 +344,7 @@ struct LaunchArgs<'a> {
     verify: bool,
     screenshot: Option<&'a std::path::Path>,
     dump_html: Option<&'a std::path::Path>,
+    har: Option<&'a std::path::Path>,
     save_session: bool,
     restore_session: bool,
     hold: u64,
@@ -358,6 +364,7 @@ async fn launch_command(args: LaunchArgs<'_>) -> Result<()> {
         verify,
         screenshot,
         dump_html,
+        har,
         save_session,
         restore_session,
         hold,
@@ -392,6 +399,23 @@ async fn launch_command(args: LaunchArgs<'_>) -> Result<()> {
         .new_page()
         .await
         .map_err(camoufox_juggler::core_error)?;
+
+    // HAR recording: a background task records network events while the
+    // session runs (page commands pump the events into the stream).
+    let har_recorder = har.map(|path| {
+        let mut har = camoufox_juggler::har::HarLog::new();
+        har.set_title(url.unwrap_or("camoufox session"));
+        har.start_page(url.unwrap_or("about:blank"));
+        let mut events = page.network_events();
+        let shared = std::sync::Arc::new(tokio::sync::Mutex::new(har));
+        let task_har = shared.clone();
+        let task = tokio::spawn(async move {
+            while let Some(event) = events.next().await.unwrap_or(None) {
+                task_har.lock().await.record(&event);
+            }
+        });
+        (shared, task, path)
+    });
 
     // Session restore (cookies first, then local storage per origin).
     let persona_id = options
@@ -449,6 +473,18 @@ async fn launch_command(args: LaunchArgs<'_>) -> Result<()> {
 
     if hold > 0 {
         tokio::time::sleep(std::time::Duration::from_secs(hold)).await;
+    }
+
+    // Flush the HAR recorder (network events observed during the session).
+    if let Some((shared, task, path)) = har_recorder {
+        // Give the recorder a moment to drain the last events.
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        task.abort();
+        let har = shared.lock().await;
+        har.write_to(path)
+            .await
+            .map_err(camoufox_juggler::core_error)?;
+        println!("HAR exported ({} entries) to {}", har.len(), path.display());
     }
 
     browser

@@ -47,6 +47,7 @@ camoufox test [--headless] [--proxy-server http://user:pass@host:port]
 camoufox launch https://example.com --headless \
   [--persona <id>] [--seed <n>] [--profile <dir>] \
   [--verify] [--screenshot out.png] [--dump-html page.html] \
+  [--har session.har] \
   [--save-session] [--restore-session] \
   [--proxy-server http://user:pass@host:port]
 
@@ -186,6 +187,49 @@ let decision = policy.decide(&RotationContext {
 });
 ```
 
+### Multi-browser orchestration
+
+```rust
+use camoufox_juggler::orchestrator::{Orchestrator, OrchestratorOptions};
+use camoufox_core::rotation::RotationPolicy;
+
+let orchestrator = Orchestrator::new(OrchestratorOptions {
+    base_options: LaunchOptions::default(),
+    store_spec: "sqlite".into(),
+    policy: RotationPolicy::PerDomain,
+    concurrency: 4,
+}).await?;
+
+// Each domain gets its own browser + persona; the rotation state
+// (use counters, domain assignments) persists in the store.
+let sessions = vec![
+    orchestrator.launch_for_domain("a.example").await?,
+    orchestrator.launch_for_domain("b.example").await?,
+];
+for session in sessions {
+    // session.browser / session.persona / session.domain
+    session.close().await?;
+}
+```
+
+### HAR export
+
+```rust
+use camoufox_juggler::har::HarLog;
+
+let mut har = HarLog::new();
+let mut events = page.network_events();
+while let Some(event) = events.next().await? {
+    if let camoufox_juggler::NetworkEvent::ResponseReceived(response) = &event {
+        if let Ok(body) = page.response_body(&response.request_id).await {
+            har.attach_body(&response.request_id, body);
+        }
+    }
+    har.record(&event);
+}
+har.write_to(std::path::Path::new("session.har")).await?;
+```
+
 ## Authenticated proxies
 
 Firefox ignores credentials in `--proxy-server`. Two native paths make
@@ -267,9 +311,20 @@ Implemented in this release:
    to move to a fresh identity: per-domain (sticky site↔persona binding,
    fresh persona per new site), time-based (max persona age) and
    usage-based (max launches per persona), combinable with `Any`
+9. **WebSocket monitoring** — `NetworkEvent::WebSocket*` variants surface
+   socket lifecycle (created/opened/closed) and frames (sent/received,
+   opcode + payload) from `Page.webSocket*` events
+10. **HAR export** — `camoufox_juggler::har::HarLog` records network events
+    into a HAR 1.2 document (pages, entries, request/response headers,
+    bodies, query strings, WebSocket messages); the CLI's
+    `camoufox launch --har session.har` records traffic automatically
+11. **Multi-browser orchestration** — `camoufox_juggler::orchestrator`
+    runs a pool of persona-driven browsers: per-domain session launching,
+    rotation-policy-driven persona selection, and rotation state (use
+    counters + domain assignments) persisted in the persona store
 
 Ideas for future releases:
 
-- WebSocket support in `JugglerPage`
-- HAR export from captured network events
-- Multi-browser orchestration (persona pools + rotation state persistence)
+- CDP-style input APIs (keyboard/mouse dispatch) surfaced in `JugglerPage`
+- Download management (`Browser.downloadCreated`/`Finished`)
+- WebSocket message injection (client→server)

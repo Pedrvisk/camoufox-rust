@@ -15,12 +15,14 @@ categories = ["web-programming", "asynchronous"]
 [dependencies]
 camoufox-core.workspace = true
 camoufox.workspace = true
+camoufox-store.workspace = true
 camoufox-virtdisplay.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 log.workspace = true
+futures-util.workspace = true
 base64 = "0.22"
 
 [target.'cfg(unix)'.dependencies]
