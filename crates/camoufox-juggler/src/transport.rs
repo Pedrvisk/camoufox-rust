@@ -155,11 +155,12 @@ async fn spawn_windows(
 ) -> Result<PipeTransport> {
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::FromRawHandle;
-    use windows_sys::Win32::Foundation::{GENERIC_READ, HANDLE, TRUE};
+    use windows_sys::Win32::Foundation::{
+        GENERIC_READ, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, TRUE,
+    };
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, SetHandleInformation, FILE_SHARE_READ, FILE_SHARE_WRITE, HANDLE_FLAG_INHERIT,
-        OPEN_EXISTING,
+        CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
     };
     use windows_sys::Win32::System::Pipes::CreatePipe;
     use windows_sys::Win32::System::Threading::{
@@ -252,7 +253,7 @@ async fn spawn_windows(
     let application_utf16: Vec<u16> = prepared
         .executable_path
         .as_os_str()
-        .encode_utf16()
+        .encode_wide()
         .chain(std::iter::once(0))
         .collect();
 
