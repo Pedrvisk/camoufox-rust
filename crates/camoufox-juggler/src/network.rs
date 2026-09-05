@@ -82,6 +82,36 @@ pub struct PendingInterception {
     pub request: NetworkRequest,
 }
 
+/// A WebSocket observed by the browser.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WebSocketInfo {
+    /// Juggler WebSocket id.
+    pub wsid: String,
+    /// The requested URL.
+    pub request_url: String,
+    /// The frame that opened the socket.
+    pub frame_id: String,
+    /// Effective URL after redirects/handshake, when opened.
+    pub effective_url: Option<String>,
+    /// Close error, when closed.
+    pub error: Option<String>,
+}
+
+/// A WebSocket frame sent or received.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WebSocketFrame {
+    /// Juggler WebSocket id.
+    pub wsid: String,
+    /// WebSocket opcode (1 = text, 2 = binary).
+    pub opcode: u8,
+    /// Frame payload (text, or base64 for binary opcodes).
+    pub data: String,
+    /// Monotonic timestamp (ms).
+    pub timestamp: f64,
+    /// `sent` or `received`.
+    pub direction: &'static str,
+}
+
 /// The network event stream for a page session.
 ///
 /// Obtained from [`crate::page::JugglerPage::network_events`]. Every event
@@ -118,6 +148,16 @@ pub enum NetworkEvent {
     RequestFinished(NetworkRequestFinished),
     /// A request failed.
     RequestFailed(NetworkRequestFailed),
+    /// A WebSocket was created.
+    WebSocketCreated(WebSocketInfo),
+    /// A WebSocket handshake completed.
+    WebSocketOpened(WebSocketInfo),
+    /// A WebSocket was closed.
+    WebSocketClosed(WebSocketInfo),
+    /// A WebSocket frame was sent.
+    WebSocketFrameSent(WebSocketFrame),
+    /// A WebSocket frame was received.
+    WebSocketFrameReceived(WebSocketFrame),
 }
 
 /// An intercepted request that can be continued, fulfilled or aborted.
@@ -168,9 +208,8 @@ impl InterceptedRequest {
         }
         if let Some(post_data) = &overrides.post_data {
             use base64::Engine;
-            params["postData"] = Value::String(
-                base64::engine::general_purpose::STANDARD.encode(post_data),
-            );
+            params["postData"] =
+                Value::String(base64::engine::general_purpose::STANDARD.encode(post_data));
         }
         self.connection
             .send_command(
@@ -316,7 +355,11 @@ pub(crate) async fn get_response_body(
             DEFAULT_COMMAND_TIMEOUT,
         )
         .await?;
-    if result.get("evicted").and_then(Value::as_bool).unwrap_or(false) {
+    if result
+        .get("evicted")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         return Err(JugglerError::Protocol(
             "response body was evicted from the cache".into(),
         ));
@@ -333,30 +376,66 @@ pub(crate) async fn get_response_body(
 
 pub(crate) fn decode_event(event: &Event) -> Option<NetworkEvent> {
     match event.method.as_str() {
-        "Network.requestWillBeSent" => {
-            Some(NetworkEvent::RequestWillBeSent(decode_request(&event.params)))
-        }
-        "Network.responseReceived" => {
-            Some(NetworkEvent::ResponseReceived(decode_response(&event.params)))
-        }
-        "Network.requestFinished" => {
-            Some(NetworkEvent::RequestFinished(NetworkRequestFinished {
-                request_id: str_field(&event.params, "requestId"),
-                transfer_size: event
-                    .params
-                    .get("transferSize")
-                    .and_then(Value::as_u64),
-                encoded_body_size: event
-                    .params
-                    .get("encodedBodySize")
-                    .and_then(Value::as_u64),
-            }))
-        }
+        "Network.requestWillBeSent" => Some(NetworkEvent::RequestWillBeSent(decode_request(
+            &event.params,
+        ))),
+        "Network.responseReceived" => Some(NetworkEvent::ResponseReceived(decode_response(
+            &event.params,
+        ))),
+        "Network.requestFinished" => Some(NetworkEvent::RequestFinished(NetworkRequestFinished {
+            request_id: str_field(&event.params, "requestId"),
+            transfer_size: event.params.get("transferSize").and_then(Value::as_u64),
+            encoded_body_size: event.params.get("encodedBodySize").and_then(Value::as_u64),
+        })),
         "Network.requestFailed" => Some(NetworkEvent::RequestFailed(NetworkRequestFailed {
             request_id: str_field(&event.params, "requestId"),
             error_code: str_field(&event.params, "errorCode"),
         })),
+        "Page.webSocketCreated" => Some(NetworkEvent::WebSocketCreated(WebSocketInfo {
+            wsid: str_field(&event.params, "wsid"),
+            request_url: str_field(&event.params, "requestURL"),
+            frame_id: str_field(&event.params, "frameId"),
+            effective_url: None,
+            error: None,
+        })),
+        "Page.webSocketOpened" => Some(NetworkEvent::WebSocketOpened(WebSocketInfo {
+            wsid: str_field(&event.params, "wsid"),
+            request_url: str_field(&event.params, "requestURL"),
+            frame_id: str_field(&event.params, "frameId"),
+            effective_url: Some(str_field(&event.params, "effectiveURL")),
+            error: None,
+        })),
+        "Page.webSocketClosed" => {
+            let error = str_field(&event.params, "error");
+            Some(NetworkEvent::WebSocketClosed(WebSocketInfo {
+                wsid: str_field(&event.params, "wsid"),
+                request_url: str_field(&event.params, "requestURL"),
+                frame_id: str_field(&event.params, "frameId"),
+                effective_url: None,
+                error: if error.is_empty() { None } else { Some(error) },
+            }))
+        }
+        "Page.webSocketFrameSent" => Some(NetworkEvent::WebSocketFrameSent(decode_ws_frame(
+            &event.params,
+            "sent",
+        ))),
+        "Page.webSocketFrameReceived" => Some(NetworkEvent::WebSocketFrameReceived(
+            decode_ws_frame(&event.params, "received"),
+        )),
         _ => None,
+    }
+}
+
+fn decode_ws_frame(params: &Value, direction: &'static str) -> WebSocketFrame {
+    WebSocketFrame {
+        wsid: str_field(params, "wsid"),
+        opcode: params.get("opcode").and_then(Value::as_u64).unwrap_or(0) as u8,
+        data: str_field(params, "data"),
+        timestamp: params
+            .get("timestamp")
+            .and_then(Value::as_f64)
+            .unwrap_or_default(),
+        direction,
     }
 }
 
@@ -392,17 +471,17 @@ pub(crate) fn decode_request(params: &Value) -> NetworkRequest {
 fn decode_response(params: &Value) -> NetworkResponseInfo {
     NetworkResponseInfo {
         request_id: str_field(params, "requestId"),
-        status: params
-            .get("status")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as u16,
+        status: params.get("status").and_then(Value::as_u64).unwrap_or(0) as u16,
         status_text: str_field(params, "statusText"),
         headers: event_headers(params.get("headers")),
         remote_ip: params
             .get("remoteIPAddress")
             .and_then(Value::as_str)
             .map(str::to_string),
-        remote_port: params.get("remotePort").and_then(Value::as_u64).map(|p| p as u16),
+        remote_port: params
+            .get("remotePort")
+            .and_then(Value::as_u64)
+            .map(|p| p as u16),
     }
 }
 
@@ -503,7 +582,10 @@ mod tests {
         assert_eq!(request.request_id, "req-1");
         assert_eq!(request.resource_type, "document");
         assert!(request.is_intercepted);
-        assert_eq!(request.headers.get("accept").map(String::as_str), Some("text/html"));
+        assert_eq!(
+            request.headers.get("accept").map(String::as_str),
+            Some("text/html")
+        );
         assert_eq!(request.frame_id.as_deref(), Some("frame-1"));
         assert!(request.navigation_id.is_none());
     }
@@ -532,5 +614,84 @@ mod tests {
         assert_eq!(resource_type("TYPE_XMLHTTPREQUEST"), "xhr");
         assert_eq!(resource_type("TYPE_INTERNAL_EVENTSOURCE"), "eventsource");
         assert_eq!(resource_type("TYPE_UNKNOWN"), "other");
+    }
+
+    fn ws_event(method: &str, params: Value) -> Event {
+        Event {
+            method: method.to_string(),
+            params,
+            session_id: String::new(),
+        }
+    }
+
+    #[test]
+    fn decodes_websocket_events() {
+        let event = ws_event(
+            "Page.webSocketCreated",
+            json!({"frameId": "f1", "wsid": "ws-1", "requestURL": "wss://example.com/live"}),
+        );
+        match decode_event(&event) {
+            Some(NetworkEvent::WebSocketCreated(info)) => {
+                assert_eq!(info.wsid, "ws-1");
+                assert_eq!(info.request_url, "wss://example.com/live");
+                assert!(info.effective_url.is_none());
+            }
+            other => panic!("expected WebSocketCreated, got {other:?}"),
+        }
+
+        let event = ws_event(
+            "Page.webSocketOpened",
+            json!({"frameId": "f1", "requestId": "r1", "wsid": "ws-1", "effectiveURL": "wss://example.com/live"}),
+        );
+        match decode_event(&event) {
+            Some(NetworkEvent::WebSocketOpened(info)) => {
+                assert_eq!(
+                    info.effective_url.as_deref(),
+                    Some("wss://example.com/live")
+                );
+            }
+            other => panic!("expected WebSocketOpened, got {other:?}"),
+        }
+
+        let event = ws_event(
+            "Page.webSocketClosed",
+            json!({"frameId": "f1", "wsid": "ws-1", "error": "1006"}),
+        );
+        match decode_event(&event) {
+            Some(NetworkEvent::WebSocketClosed(info)) => {
+                assert_eq!(info.error.as_deref(), Some("1006"));
+            }
+            other => panic!("expected WebSocketClosed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decodes_websocket_frames() {
+        let event = ws_event(
+            "Page.webSocketFrameSent",
+            json!({"frameId": "f1", "wsid": "ws-1", "opcode": 1, "data": "hello", "timestamp": 1234.5}),
+        );
+        match decode_event(&event) {
+            Some(NetworkEvent::WebSocketFrameSent(frame)) => {
+                assert_eq!(frame.wsid, "ws-1");
+                assert_eq!(frame.opcode, 1);
+                assert_eq!(frame.data, "hello");
+                assert_eq!(frame.timestamp, 1234.5);
+                assert_eq!(frame.direction, "sent");
+            }
+            other => panic!("expected WebSocketFrameSent, got {other:?}"),
+        }
+
+        let event = ws_event(
+            "Page.webSocketFrameReceived",
+            json!({"frameId": "f1", "wsid": "ws-1", "opcode": 2, "data": "AAAA", "timestamp": 1.0}),
+        );
+        match decode_event(&event) {
+            Some(NetworkEvent::WebSocketFrameReceived(frame)) => {
+                assert_eq!(frame.direction, "received");
+                assert_eq!(frame.opcode, 2);
+            }
+            other => panic!("expected WebSocketFrameReceived, got {other:?}"),
+        }
     }
 }

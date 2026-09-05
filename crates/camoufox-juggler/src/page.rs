@@ -111,8 +111,9 @@ impl JugglerPage {
     }
 
     fn handle_event(&self, event: crate::protocol::Event) {
-        // Network events are forwarded to subscribers, not page state.
-        if event.method.starts_with("Network.") {
+        // Network and WebSocket events are forwarded to subscribers, not
+        // page state.
+        if event.method.starts_with("Network.") || event.method.starts_with("Page.webSocket") {
             let mut senders = self.state.network_broadcast.lock().unwrap();
             senders.retain(|sender| {
                 let _ = sender.send(event.clone());
@@ -663,7 +664,10 @@ impl JugglerPage {
 
     /// Builds an [`InterceptedRequest`] handle for a pending intercepted
     /// request observed through [`JugglerPage::network_events`].
-    pub fn take_intercepted_request(&self, request: &crate::network::NetworkRequest) -> Arc<crate::network::InterceptedRequest> {
+    pub fn take_intercepted_request(
+        &self,
+        request: &crate::network::NetworkRequest,
+    ) -> Arc<crate::network::InterceptedRequest> {
         Arc::new(crate::network::InterceptedRequest::new(
             self.connection.clone(),
             self.session_id.clone(),
@@ -681,7 +685,8 @@ impl JugglerPage {
     /// Captures local storage entries for the current origin.
     pub async fn local_storage(
         &self,
-    ) -> Result<Option<(String, std::collections::BTreeMap<String, String>)>> {        let value = self
+    ) -> Result<Option<(String, std::collections::BTreeMap<String, String>)>> {
+        let value = self
             .evaluate(
                 "(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { \
                   const k = localStorage.key(i); o[k] = localStorage.getItem(k); } \

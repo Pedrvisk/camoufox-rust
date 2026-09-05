@@ -60,7 +60,12 @@ pub async fn spawn_with_juggler_pipe(
     }
 }
 
-fn common_args(prepared: &PreparedLaunch, profile_dir: &std::path::Path, headless: bool, extra_args: &[String]) -> Vec<String> {
+fn common_args(
+    prepared: &PreparedLaunch,
+    profile_dir: &std::path::Path,
+    headless: bool,
+    extra_args: &[String],
+) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "-no-remote".into(),
         "--profile".into(),

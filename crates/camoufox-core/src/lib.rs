@@ -41,6 +41,4 @@ pub use os::{host_os, os_name_from_str, supported_os_from_str, OsName, Supported
 pub use persona::{
     PersonaCookie, PersonaLocalStorage, PersonaRecord, PersonaSummary, SessionSnapshot,
 };
-pub use rotation::{
-    RotationContext, RotationDecision, RotationPolicy, RotationState,
-};
+pub use rotation::{RotationContext, RotationDecision, RotationPolicy, RotationState};

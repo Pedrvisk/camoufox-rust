@@ -120,9 +120,7 @@ impl RotationPolicy {
                 }),
             },
             RotationPolicy::PerDomain => decide_per_domain(ctx),
-            RotationPolicy::TimeBased { max_age_secs } => {
-                decide_time_based(ctx, *max_age_secs)
-            }
+            RotationPolicy::TimeBased { max_age_secs } => decide_time_based(ctx, *max_age_secs),
             RotationPolicy::UsageBased { max_uses } => decide_usage_based(ctx, *max_uses),
             RotationPolicy::Any { policies } => {
                 for policy in policies {
@@ -146,11 +144,9 @@ impl RotationPolicy {
 }
 
 fn first_available(ctx: &RotationContext<'_>) -> Option<RotationDecision> {
-    ctx.pool
-        .first()
-        .map(|record| RotationDecision::Keep {
-            persona_id: record.id.clone(),
-        })
+    ctx.pool.first().map(|record| RotationDecision::Keep {
+        persona_id: record.id.clone(),
+    })
 }
 
 fn default_suggested_id(ctx: &RotationContext<'_>) -> String {
@@ -208,7 +204,9 @@ fn decide_per_domain(ctx: &RotationContext<'_>) -> RotationDecision {
     if let Some(persona_id) = least_used {
         return RotationDecision::Rotate {
             persona_id,
-            cause: format!("all personas already assigned; reusing the least spread one for '{domain}'"),
+            cause: format!(
+                "all personas already assigned; reusing the least spread one for '{domain}'"
+            ),
         };
     }
 
@@ -229,8 +227,7 @@ fn decide_time_based(ctx: &RotationContext<'_>, max_age_secs: u64) -> RotationDe
         }
         // Current persona is stale: prefer a fresh one from the pool.
         if let Some(fresh) = ctx.pool.iter().find(|record| {
-            now.saturating_sub(record.created_at) <= max_age_secs
-                && record.id != current.id
+            now.saturating_sub(record.created_at) <= max_age_secs && record.id != current.id
         }) {
             return RotationDecision::Rotate {
                 persona_id: fresh.id.clone(),
@@ -320,8 +317,7 @@ mod tests {
     use crate::fingerprint::FingerprintRequest;
 
     fn persona(id: &str, created_at: u64) -> PersonaRecord {
-        let mut record =
-            PersonaRecord::generate(id, &FingerprintRequest::default()).unwrap();
+        let mut record = PersonaRecord::generate(id, &FingerprintRequest::default()).unwrap();
         record.created_at = created_at;
         record
     }
@@ -346,7 +342,13 @@ mod tests {
     fn none_policy_keeps_current() {
         let current = persona("a", 1000);
         let state = RotationState::default();
-        let decision = RotationPolicy::None.decide(&ctx(Some(&current), std::slice::from_ref(&current), &state, None, &Default::default()));
+        let decision = RotationPolicy::None.decide(&ctx(
+            Some(&current),
+            std::slice::from_ref(&current),
+            &state,
+            None,
+            &Default::default(),
+        ));
         assert_eq!(
             decision,
             RotationDecision::Keep {
@@ -386,7 +388,9 @@ mod tests {
             Some("other.com"),
             &domains,
         ));
-        assert!(matches!(decision, RotationDecision::Rotate { ref persona_id, .. } if persona_id == "b"));
+        assert!(
+            matches!(decision, RotationDecision::Rotate { ref persona_id, .. } if persona_id == "b")
+        );
     }
 
     #[test]
@@ -395,24 +399,20 @@ mod tests {
         let old = persona("old", now - 10_000);
         let fresh = persona("fresh", now);
         let state = RotationState::default();
-        let decision = RotationPolicy::TimeBased {
-            max_age_secs: 3600,
-        }
-        .decide(&ctx(
+        let decision = RotationPolicy::TimeBased { max_age_secs: 3600 }.decide(&ctx(
             Some(&old),
             &[old.clone(), fresh.clone()],
             &state,
             None,
             &Default::default(),
         ));
-        assert!(matches!(decision, RotationDecision::Rotate { ref persona_id, .. } if persona_id == "fresh"));
+        assert!(
+            matches!(decision, RotationDecision::Rotate { ref persona_id, .. } if persona_id == "fresh")
+        );
 
         // Current still fresh: keep.
         let current = fresh;
-        let decision = RotationPolicy::TimeBased {
-            max_age_secs: 3600,
-        }
-        .decide(&ctx(
+        let decision = RotationPolicy::TimeBased { max_age_secs: 3600 }.decide(&ctx(
             Some(&current),
             std::slice::from_ref(&current),
             &state,
@@ -439,7 +439,9 @@ mod tests {
             None,
             &Default::default(),
         ));
-        assert!(matches!(decision, RotationDecision::Rotate { ref persona_id, .. } if persona_id == "b"));
+        assert!(
+            matches!(decision, RotationDecision::Rotate { ref persona_id, .. } if persona_id == "b")
+        );
 
         // Under the cap: keep.
         let decision = RotationPolicy::UsageBased { max_uses: 5 }.decide(&ctx(
@@ -461,9 +463,7 @@ mod tests {
         let combined = RotationPolicy::Any {
             policies: vec![
                 RotationPolicy::UsageBased { max_uses: 10 },
-                RotationPolicy::TimeBased {
-                    max_age_secs: 3600,
-                },
+                RotationPolicy::TimeBased { max_age_secs: 3600 },
             ],
         };
         let decision = combined.decide(&ctx(
@@ -474,7 +474,9 @@ mod tests {
             &Default::default(),
         ));
         // Time policy triggers (old persona) before usage does.
-        assert!(matches!(decision, RotationDecision::Rotate { ref persona_id, .. } if persona_id == "fresh"));
+        assert!(
+            matches!(decision, RotationDecision::Rotate { ref persona_id, .. } if persona_id == "fresh")
+        );
 
         // Neither triggers: keep.
         let decision = combined.decide(&ctx(
