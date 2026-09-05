@@ -156,7 +156,7 @@ async fn spawn_windows(
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::FromRawHandle;
     use windows_sys::Win32::Foundation::{
-        GENERIC_READ, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, TRUE,
+        SetHandleInformation, GENERIC_READ, HANDLE, HANDLE_FLAG_INHERIT, TRUE,
     };
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     use windows_sys::Win32::Storage::FileSystem::{
@@ -201,10 +201,8 @@ async fn spawn_windows(
 
     // The parent-side ends must not leak into the browser: mark them
     // non-inheritable so EOF semantics work when either side exits.
-    let no_inherit = |handle: HANDLE| {
-        unsafe {
-            SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
-        }
+    let no_inherit = |handle: HANDLE| unsafe {
+        SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
     };
     no_inherit(stdout_read);
     no_inherit(stderr_read);
@@ -234,7 +232,13 @@ async fn spawn_windows(
     // The child stdio blob the MSVCRT parses at startup:
     //   int count; u8 crt_flags[count]; HANDLE os_handle[count]
     let handles = [nul, stdout_write, stderr_write, cmd_read, rsp_write];
-    let flags = [FOPEN | FDEV, FOPEN | FPIPE, FOPEN | FPIPE, FOPEN | FPIPE, FOPEN | FPIPE];
+    let flags = [
+        FOPEN | FDEV,
+        FOPEN | FPIPE,
+        FOPEN | FPIPE,
+        FOPEN | FPIPE,
+        FOPEN | FPIPE,
+    ];
     let mut blob: Vec<u8> = Vec::with_capacity(4 + flags.len() + handles.len() * 8);
     blob.extend_from_slice(&(handles.len() as u32).to_le_bytes());
     blob.extend_from_slice(&flags);

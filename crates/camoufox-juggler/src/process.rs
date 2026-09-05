@@ -150,7 +150,7 @@ impl BrowserProcess {
             }
         })
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(|e| io::Error::other(e))?;
         if waited == windows_sys::Win32::Foundation::WAIT_FAILED {
             return Err(io::Error::last_os_error());
         }
