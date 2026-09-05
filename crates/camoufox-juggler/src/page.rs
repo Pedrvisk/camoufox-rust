@@ -52,7 +52,7 @@ pub struct Dialog {
 
 /// A Juggler page target.
 pub struct JugglerPage {
-    connection: Arc<Connection>,
+    pub(crate) connection: Arc<Connection>,
     /// Juggler session id for this target.
     pub session_id: String,
     /// Target id.
@@ -678,6 +678,84 @@ impl JugglerPage {
     /// Fetches the response body of a finished request.
     pub async fn response_body(&self, request_id: &str) -> Result<Vec<u8>> {
         crate::network::get_response_body(&self.connection, &self.session_id, request_id).await
+    }
+
+    // -- WebSocket injection ---------------------------------------------------
+
+    /// Installs the WebSocket registry hook (required before
+    /// [`JugglerPage::send_websocket_message`] works).
+    ///
+    /// Must run *before* the page constructs its WebSockets (call it right
+    /// after page creation, before `goto`). Re-installing is a no-op
+    /// (`Page.setInitScripts` replaces the script list).
+    pub async fn enable_websocket_injection(&self) -> Result<()> {
+        self.add_init_script(crate::network::WEBSOCKET_INJECTION_INIT_SCRIPT)
+            .await
+    }
+
+    /// Sends a text message over a live WebSocket matching `url` as the
+    /// page (client→server injection).
+    ///
+    /// Requires [`JugglerPage::enable_websocket_injection`] to have run
+    /// before the socket was constructed. With several sockets open for
+    /// the same URL the message goes to the most recent one.
+    pub async fn send_websocket_message(&self, url: &str, message: &str) -> Result<()> {
+        self.evaluate(&format!(
+            "(msg => {{ const list = window.__camoufoxSockets && window.__camoufoxSockets[{url_json}]; \
+             if (!list || !list.length) throw new Error('no live WebSocket registered for {url_json}'); \
+             const socket = list[list.length - 1]; \
+             if (socket.readyState !== 1) throw new Error('WebSocket for {url_json} is not open'); \
+             socket.send(msg); }})({payload_json})",
+            url_json = serde_json::to_string(url)?,
+            payload_json = serde_json::to_string(message)?,
+        ))
+        .await?;
+        Ok(())
+    }
+
+    /// Like [`JugglerPage::send_websocket_message`] but sends binary
+    /// payload (base64-encoded through the transport, delivered as an
+    /// ArrayBuffer).
+    pub async fn send_websocket_binary(&self, url: &str, bytes: &[u8]) -> Result<()> {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        self.evaluate(&format!(
+            "(b64 => {{ const list = window.__camoufoxSockets && window.__camoufoxSockets[{url_json}]; \
+             if (!list || !list.length) throw new Error('no live WebSocket registered for {url_json}'); \
+             const socket = list[list.length - 1]; \
+             if (socket.readyState !== 1) throw new Error('WebSocket for {url_json} is not open'); \
+             const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)); \
+             socket.send(bytes.buffer); }})({payload_json})",
+            url_json = serde_json::to_string(url)?,
+            payload_json = serde_json::to_string(&encoded)?,
+        ))
+        .await?;
+        Ok(())
+    }
+
+    /// Lists the URLs of live WebSockets registered by the injection
+    /// hook, with their readyState (0 connecting, 1 open, 2 closing,
+    /// 3 closed).
+    pub async fn live_websockets(&self) -> Result<Vec<(String, u8)>> {
+        let value = self
+            .evaluate(
+                "(() => { const out = []; for (const [url, list] of \
+                 Object.entries(window.__camoufoxSockets || {})) { \
+                 for (const socket of list) out.push([url, socket.readyState]); } return out; })()",
+            )
+            .await?;
+        let mut sockets = Vec::new();
+        if let Some(entries) = value.as_array() {
+            for entry in entries {
+                if let (Some(url), Some(state)) = (
+                    entry.get(0).and_then(Value::as_str),
+                    entry.get(1).and_then(Value::as_u64),
+                ) {
+                    sockets.push((url.to_string(), state as u8));
+                }
+            }
+        }
+        Ok(sockets)
     }
 
     // -- Local storage -----------------------------------------------------------

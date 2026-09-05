@@ -160,6 +160,31 @@ pub enum NetworkEvent {
     WebSocketFrameReceived(WebSocketFrame),
 }
 
+/// Init script that registers live WebSocket instances so
+/// [`crate::page::JugglerPage::send_websocket_message`] can target them.
+///
+/// Each constructed `WebSocket` stores itself in
+/// `window.__camoufoxSockets[url][]`; instances are dropped again when the
+/// socket closes.
+pub const WEBSOCKET_INJECTION_INIT_SCRIPT: &str = r#"
+(() => {
+  const registry = (window.__camoufoxSockets ||= {});
+  const NativeWebSocket = window.WebSocket;
+  class RegisteredWebSocket extends NativeWebSocket {
+    constructor(url, protocols) {
+      super(url, protocols);
+      const list = (registry[url] ||= []);
+      list.push(this);
+      this.addEventListener('close', () => {
+        const index = list.indexOf(this);
+        if (index !== -1) list.splice(index, 1);
+      });
+    }
+  }
+  window.WebSocket = RegisteredWebSocket;
+})();
+"#;
+
 /// An intercepted request that can be continued, fulfilled or aborted.
 ///
 /// Dropping it without a decision resumes the request (Playwright parity).

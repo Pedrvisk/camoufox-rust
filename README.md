@@ -230,6 +230,66 @@ while let Some(event) = events.next().await? {
 har.write_to(std::path::Path::new("session.har")).await?;
 ```
 
+### Input (mouse, keyboard, touch, wheel)
+
+```rust
+// Mouse
+page.click(320.0, 240.0).await?;
+page.double_click(320.0, 240.0).await?;
+page.click_with(10.0, 10.0, MouseButton::Right, Modifiers::SHIFT).await?;
+
+// Keyboard
+page.type_text("hello world").await?;
+page.press_key_with("a", Modifiers::CTRL).await?; // select all
+
+// Scrolling
+page.wheel(320.0, 240.0, 0.0, -600.0).await?; // scroll up
+
+// Touch
+page.tap(320.0, 240.0).await?;
+page.touch_event(TouchEventType::Start, &[TouchPoint { x: 100.0, y: 100.0 }]).await?;
+```
+
+### Downloads
+
+```rust
+use camoufox_juggler::{DownloadBehavior, DownloadEvent};
+
+// Save downloads to a directory and watch them.
+browser.set_download_options(Some(&DownloadBehavior::SaveToDisk("downloads".into()))).await?;
+let mut downloads = browser.download_events();
+while let Some(event) = downloads.next().await {
+    match event {
+        DownloadEvent::Created(created) => {
+            println!("download started: {}", created.suggested_file_name);
+        }
+        DownloadEvent::Finished(finished) => {
+            println!("download finished: {}", finished.uuid);
+            break;
+        }
+    }
+}
+
+// Abort everything instead:
+browser.set_download_options(Some(&DownloadBehavior::Cancel)).await?;
+```
+
+### WebSocket injection
+
+```rust
+// Before the page opens its sockets:
+page.enable_websocket_injection().await?;
+page.goto("https://example.com/chat").await?;
+
+// Send a frame as the page (client → server):
+page.send_websocket_message("wss://example.com/chat", r#"{"type":"ping"}"#).await?;
+
+// Inspect live sockets (url, readyState):
+for (url, state) in page.live_websockets().await? {
+    println!("{url}: readyState={state}");
+}
+```
+
 ## Authenticated proxies
 
 Firefox ignores credentials in `--proxy-server`. Two native paths make
@@ -322,9 +382,23 @@ Implemented in this release:
     runs a pool of persona-driven browsers: per-domain session launching,
     rotation-policy-driven persona selection, and rotation state (use
     counters + domain assignments) persisted in the persona store
+12. **Input APIs** — `JugglerPage` dispatches synthesized input events:
+    mouse (`click`, `double_click`, `mouse_down/move/up`), keyboard
+    (`press_key`, `type_text`, `key_down/up` with modifier support),
+    touch (`tap`, `touch_event`) and scrolling (`wheel`), through
+    `Page.dispatch*Event` / `Page.insertText`
+13. **Download management** — `browser.set_download_options` configures
+    `saveToDisk`/`cancel` behavior, `browser.download_events()` streams
+    `downloadCreated`/`downloadFinished` and `browser.cancel_download`
+    aborts in-flight downloads
+14. **WebSocket message injection** — `page.enable_websocket_injection()`
+    installs a hook that registers live sockets;
+    `page.send_websocket_message(url, text)` (or `send_websocket_binary`)
+    sends client→server frames as the page, and `page.live_websockets()`
+    lists open sockets with their readyState
 
 Ideas for future releases:
 
-- CDP-style input APIs (keyboard/mouse dispatch) surfaced in `JugglerPage`
-- Download management (`Browser.downloadCreated`/`Finished`)
-- WebSocket message injection (client→server)
+- Screencast (Page.startScreencast / screencastFrame streaming)
+- File chooser interception (`Page.setInterceptFileChooserDialog`)
+- Worker messaging (`Page.sendMessageToWorker`)

@@ -10,10 +10,12 @@
 //!   through the `camoufox` facade and spawns the browser with the Juggler
 //!   pipe connected (FDs 3/4 on Unix, `PW_PIPE_READ`/`PW_PIPE_WRITE`
 //!   inheritable handles on Windows)
-//! - [`JugglerBrowser`] manages contexts, pages, cookies and the
-//!   credentials-aware proxy configuration
+//! - [`JugglerBrowser`] manages contexts, pages, cookies, downloads and
+//!   the credentials-aware proxy configuration
 //! - [`JugglerPage`] navigates, evaluates JS, screenshots, captures
-//!   cookies/local storage, exposes network events and intercepts requests
+//!   cookies/local storage, dispatches input events (mouse, keyboard,
+//!   touch, wheel), exposes network events, intercepts requests and
+//!   injects WebSocket frames
 //! - [`verify_fingerprint`] asserts the running browser's spoofed surfaces
 //!   match the generated fingerprint
 //! - [`Orchestrator`] runs a pool of persona-driven browser sessions with
@@ -63,9 +65,11 @@
 
 pub mod browser;
 pub mod connection;
+pub mod download;
 pub mod driver;
 pub mod error;
 pub mod har;
+pub mod input;
 pub mod network;
 pub mod orchestrator;
 pub mod page;
@@ -75,9 +79,13 @@ pub mod verify;
 
 pub use browser::JugglerBrowser;
 pub use connection::{Connection, DEFAULT_COMMAND_TIMEOUT};
+pub use download::{
+    DownloadBehavior, DownloadCreated, DownloadEvent, DownloadEvents, DownloadFinished,
+};
 pub use driver::{core_error, into_core, launch_with_juggler};
 pub use error::{JugglerError, Result};
 pub use har::HarLog;
+pub use input::{KeyDescriptor, Modifiers, MouseButton, TouchEventType, TouchPoint};
 pub use network::{
     FulfillResponse, InterceptedRequest, NetworkEvent, NetworkEvents, NetworkRequest,
     NetworkRequestFailed, NetworkRequestFinished, NetworkResponseInfo, RouteOverrides,

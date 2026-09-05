@@ -4,16 +4,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use camoufox::builder::PreparedLaunch;
 use camoufox::builder::ProxyConfig;
 use camoufox_core::error::Result as CoreResult;
 
 use crate::connection::{Connection, DEFAULT_COMMAND_TIMEOUT};
+use crate::download::{self, DownloadBehavior, DownloadEvent, DownloadEvents};
 use crate::error::{JugglerError, Result};
 use crate::page::JugglerPage;
 use crate::protocol;
+
+type DownloadSubscribers =
+    Arc<std::sync::Mutex<Vec<tokio::sync::mpsc::UnboundedSender<DownloadEvent>>>>;
 
 /// A running Camoufox driven through the native Juggler pipe.
 pub struct JugglerBrowser {
@@ -24,11 +28,14 @@ pub struct JugglerBrowser {
     /// The virtual display backing the process, when one was started.
     pub virtual_display: Option<camoufox_virtdisplay::VirtualDisplay>,
     connection: Arc<Connection>,
-    root_events: tokio::sync::Mutex<UnboundedReceiver<crate::protocol::Event>>,
+    /// `Browser.attachedToTarget` events, fed by the root-event pump.
+    attached_rx: tokio::sync::Mutex<UnboundedReceiver<crate::protocol::Event>>,
     /// `true` after `Browser.close` was sent.
     closing: std::sync::atomic::AtomicBool,
     /// `true` when pages are created in the default (persistent) context.
     persistent: bool,
+    /// Broadcast senders for `download_events()` subscribers.
+    download_broadcast: DownloadSubscribers,
 }
 
 impl JugglerBrowser {
@@ -40,16 +47,80 @@ impl JugglerBrowser {
         connection: Arc<Connection>,
         persistent: bool,
     ) -> Self {
-        let root_events = connection.subscribe(protocol::ROOT_SESSION);
+        let mut root_events = connection.subscribe(protocol::ROOT_SESSION);
+        let (attached_tx, attached_rx) = mpsc::unbounded_channel();
+        let download_broadcast: DownloadSubscribers = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let pump_broadcast = download_broadcast.clone();
+        // Root-event pump: fans out attachedToTarget to `new_page` and
+        // download events to `download_events` subscribers.
+        tokio::spawn(async move {
+            while let Some(event) = root_events.recv().await {
+                match event.method.as_str() {
+                    "Browser.attachedToTarget" => {
+                        let _ = attached_tx.send(event);
+                    }
+                    "Browser.downloadCreated" => {
+                        if let Some(created) = download::decode_download_created(&event.params) {
+                            broadcast_download(&pump_broadcast, DownloadEvent::Created(created));
+                        }
+                    }
+                    "Browser.downloadFinished" => {
+                        if let Some(finished) = download::decode_download_finished(&event.params) {
+                            broadcast_download(&pump_broadcast, DownloadEvent::Finished(finished));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
         Self {
             child,
             prepared,
             virtual_display,
             connection,
-            root_events: tokio::sync::Mutex::new(root_events),
+            attached_rx: tokio::sync::Mutex::new(attached_rx),
             closing: std::sync::atomic::AtomicBool::new(false),
             persistent,
+            download_broadcast,
         }
+    }
+
+    /// Subscribes to download events (created/finished) browser-wide.
+    pub fn download_events(&self) -> DownloadEvents {
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.download_broadcast.lock().unwrap().push(tx);
+        DownloadEvents::new(rx)
+    }
+
+    /// Configures what the browser does with downloads.
+    ///
+    /// Call *before* triggering a download: `SaveToDisk(dir)` writes files
+    /// into `dir`; `Cancel` drops them. `None` resets to the browser's
+    /// default behavior.
+    pub async fn set_download_options(&self, behavior: Option<&DownloadBehavior>) -> Result<()> {
+        self.connection
+            .send_command(
+                None,
+                "Browser.setDownloadOptions",
+                download::download_options(None, behavior),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Cancels a download by uuid, or every in-flight download when the
+    /// uuid is omitted.
+    pub async fn cancel_download(&self, uuid: Option<&str>) -> Result<()> {
+        self.connection
+            .send_command(
+                None,
+                "Browser.cancelDownload",
+                download::cancel_download(uuid),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
     }
 
     /// The underlying connection (advanced use).
@@ -151,7 +222,7 @@ impl JugglerBrowser {
 
         // Wait for the attachedToTarget event carrying our target's session.
         let session_id = {
-            let mut events = self.root_events.lock().await;
+            let mut events = self.attached_rx.lock().await;
             let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
             loop {
                 if let Ok(Some(event)) = tokio::time::timeout_at(deadline, events.recv()).await {
@@ -304,6 +375,15 @@ fn bypass_list(proxy: &ProxyConfig) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Fans a download event out to subscribers, dropping closed ones.
+fn broadcast_download(subscribers: &DownloadSubscribers, event: DownloadEvent) {
+    let mut senders = subscribers.lock().unwrap();
+    senders.retain(|sender| {
+        let _ = sender.send(event.clone());
+        !sender.is_closed()
+    });
 }
 
 #[cfg(test)]
