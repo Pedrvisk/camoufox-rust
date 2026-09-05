@@ -35,6 +35,74 @@ struct PageState {
     network_broadcast: Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::protocol::Event>>>,
     /// Whether request interception is enabled.
     interception: AtomicBool,
+    /// Pending intercepted file choosers.
+    file_choosers: Mutex<Vec<PendingFileChooser>>,
+    /// Active workers (workerId → info).
+    workers: Mutex<HashMap<String, crate::worker::WorkerInfo>>,
+    /// Broadcast senders for screencast frames.
+    screencast_broadcast:
+        Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::screencast::ScreencastFrame>>>,
+    /// Broadcast senders for worker events.
+    worker_broadcast: Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::worker::WorkerEvent>>>,
+}
+
+/// Data captured from a `Page.fileChooserOpened` event.
+#[derive(Debug, Clone)]
+struct PendingFileChooser {
+    object_id: String,
+    execution_context_id: String,
+    frame_id: String,
+}
+
+/// An intercepted file chooser: the `<input type=file>` element that
+/// triggered it, ready to receive files through [`FileChooser::set_files`].
+pub struct FileChooser {
+    /// Remote object id of the input element.
+    pub object_id: String,
+    /// Execution context the element lives in.
+    pub execution_context_id: String,
+    /// Frame the element lives in.
+    pub frame_id: String,
+    connection: Arc<Connection>,
+    session_id: String,
+}
+
+impl FileChooser {
+    /// Assigns local files to the input element.
+    ///
+    /// Paths must be absolute and readable by the browser process.
+    pub async fn set_files(&self, files: &[impl AsRef<std::path::Path>]) -> Result<()> {
+        let files: Vec<String> = files
+            .iter()
+            .map(|path| path.as_ref().to_string_lossy().into_owned())
+            .collect();
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.setFileInputFiles",
+                serde_json::json!({
+                    "frameId": self.frame_id,
+                    "objectId": self.object_id,
+                    "files": files,
+                }),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+/// Extracts (executionContextId, objectId) from a file chooser event.
+fn decode_file_chooser(params: &Value) -> Option<(String, String)> {
+    let execution_context_id = params
+        .get("executionContextId")
+        .and_then(Value::as_str)?
+        .to_string();
+    let object_id = params
+        .pointer("/element/objectId")
+        .and_then(Value::as_str)?
+        .to_string();
+    Some((execution_context_id, object_id))
 }
 
 /// An open JS dialog (alert/confirm/prompt/beforeunload).
@@ -152,6 +220,25 @@ impl JugglerPage {
                     .lock()
                     .unwrap()
                     .insert(frame_id.clone(), url);
+                // Workers of the navigating frame are torn down
+                // (Playwright parity).
+                let destroyed: Vec<String> = {
+                    let mut workers = self.state.workers.lock().unwrap();
+                    let ids: Vec<String> = workers
+                        .iter()
+                        .filter(|(_, worker)| worker.frame_id == frame_id)
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    for id in &ids {
+                        workers.remove(id);
+                    }
+                    ids
+                };
+                for worker_id in destroyed {
+                    self.broadcast_worker_event(crate::worker::WorkerEvent::Destroyed {
+                        worker_id,
+                    });
+                }
                 self.state
                     .commits
                     .lock()
@@ -215,6 +302,78 @@ impl JugglerPage {
                     self.state.dialogs.lock().unwrap().remove(&dialog_id);
                 }
             }
+            "Page.screencastFrame" => {
+                if let Some(frame) = crate::screencast::decode_frame(params) {
+                    let mut senders = self.state.screencast_broadcast.lock().unwrap();
+                    senders.retain(|sender| {
+                        let _ = sender.send(frame.clone());
+                        !sender.is_closed()
+                    });
+                    // Ack so the browser keeps producing frames
+                    // (Playwright parity).
+                    let connection = self.connection.clone();
+                    let session = self.session_id.clone();
+                    tokio::spawn(async move {
+                        let _ = connection
+                            .send_command(
+                                Some(&session),
+                                "Page.screencastFrameAck",
+                                serde_json::json!({}),
+                                DEFAULT_COMMAND_TIMEOUT,
+                            )
+                            .await;
+                    });
+                }
+            }
+            "Page.fileChooserOpened" => {
+                if let Some((execution_context_id, object_id)) = decode_file_chooser(params) {
+                    let frame_id = self
+                        .state
+                        .contexts
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|(id, _)| id == &execution_context_id)
+                        .map(|(_, frame)| frame.clone())
+                        .unwrap_or_default();
+                    self.state
+                        .file_choosers
+                        .lock()
+                        .unwrap()
+                        .push(PendingFileChooser {
+                            object_id,
+                            execution_context_id,
+                            frame_id,
+                        });
+                }
+            }
+            "Page.workerCreated" => {
+                if let Some(worker) = crate::worker::decode_worker_created(params) {
+                    self.state
+                        .workers
+                        .lock()
+                        .unwrap()
+                        .insert(worker.worker_id.clone(), worker.clone());
+                    self.broadcast_worker_event(crate::worker::WorkerEvent::Created(worker));
+                }
+            }
+            "Page.workerDestroyed" => {
+                if let Some(worker_id) = crate::worker::decode_worker_id(params) {
+                    self.state.workers.lock().unwrap().remove(&worker_id);
+                    self.broadcast_worker_event(crate::worker::WorkerEvent::Destroyed {
+                        worker_id,
+                    });
+                }
+            }
+            "Page.dispatchMessageFromWorker" => {
+                if let Some((worker_id, message)) = crate::worker::decode_worker_message(params) {
+                    self.broadcast_worker_event(crate::worker::WorkerEvent::Message {
+                        worker_id,
+                        message,
+                    });
+                }
+            }
             "Browser.detachedFromTarget"
                 if str_field(params, "targetId").as_deref() == Some(&self.target_id) =>
             {
@@ -222,6 +381,15 @@ impl JugglerPage {
             }
             _ => {}
         }
+    }
+
+    /// Fans a worker event out to subscribers, dropping closed ones.
+    fn broadcast_worker_event(&self, event: crate::worker::WorkerEvent) {
+        let mut senders = self.state.worker_broadcast.lock().unwrap();
+        senders.retain(|sender| {
+            let _ = sender.send(event.clone());
+            !sender.is_closed()
+        });
     }
 
     /// Waits until the predicate holds, processing events meanwhile.
@@ -758,6 +926,147 @@ impl JugglerPage {
         Ok(sockets)
     }
 
+    // -- Screencast --------------------------------------------------------------
+
+    /// Subscribes to screencast frames (call before
+    /// [`JugglerPage::start_screencast`]; frames are auto-acked so the
+    /// browser keeps producing them).
+    pub fn screencast_frames(&self) -> crate::screencast::ScreencastFrames {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.state.screencast_broadcast.lock().unwrap().push(tx);
+        crate::screencast::ScreencastFrames::new(rx)
+    }
+
+    /// Starts the screencast.
+    ///
+    /// `quality` is the JPEG quality (0-100). Frames arrive through
+    /// [`JugglerPage::screencast_frames`] as long as the stream is held.
+    pub async fn start_screencast(&self, width: u64, height: u64, quality: u64) -> Result<()> {
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.startScreencast",
+                crate::screencast::start_screencast(width, height, quality),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Stops the screencast.
+    pub async fn stop_screencast(&self) -> Result<()> {
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.stopScreencast",
+                serde_json::json!({}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    // -- File chooser ------------------------------------------------------------
+
+    /// Enables or disables file chooser interception.
+    ///
+    /// While enabled, `<input type=file>` clicks surface as
+    /// `Page.fileChooserOpened` events instead of opening the OS dialog;
+    /// collect them with [`JugglerPage::wait_for_file_chooser`].
+    pub async fn set_intercept_file_chooser(&self, enabled: bool) -> Result<()> {
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.setInterceptFileChooserDialog",
+                serde_json::json!({"enabled": enabled}),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Number of file choosers waiting to be handled.
+    pub fn file_choosers_pending(&self) -> usize {
+        self.state.file_choosers.lock().unwrap().len()
+    }
+
+    /// Waits for the next intercepted file chooser.
+    ///
+    /// Requires [`JugglerPage::set_intercept_file_chooser`] to be enabled.
+    /// The returned handle's [`FileChooser::set_files`] assigns local
+    /// files to the input element.
+    pub async fn wait_for_file_chooser(&self, timeout: Duration) -> Result<FileChooser> {
+        self.wait_until(
+            || !self.state.file_choosers.lock().unwrap().is_empty(),
+            timeout,
+            "file chooser",
+        )
+        .await?;
+        let pending = self
+            .state
+            .file_choosers
+            .lock()
+            .unwrap()
+            .pop()
+            .ok_or_else(|| JugglerError::Protocol("file chooser disappeared".into()))?;
+        Ok(FileChooser {
+            object_id: pending.object_id,
+            execution_context_id: pending.execution_context_id,
+            frame_id: pending.frame_id,
+            connection: self.connection.clone(),
+            session_id: self.session_id.clone(),
+        })
+    }
+
+    // -- Workers -----------------------------------------------------------------
+
+    /// Active workers in this page.
+    pub fn workers(&self) -> Vec<crate::worker::WorkerInfo> {
+        self.state
+            .workers
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// Subscribes to worker lifecycle (created/destroyed) and message
+    /// events.
+    pub fn worker_events(&self) -> crate::worker::WorkerEvents {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.state.worker_broadcast.lock().unwrap().push(tx);
+        crate::worker::WorkerEvents::new(rx)
+    }
+
+    /// Sends a message to a worker (`Page.sendMessageToWorker`).
+    ///
+    /// Payloads are conventionally JSON strings — the channel Playwright
+    /// uses to drive a full Juggler session inside the worker.
+    pub async fn send_message_to_worker(&self, worker_id: &str, message: &str) -> Result<()> {
+        let frame_id = self
+            .state
+            .workers
+            .lock()
+            .unwrap()
+            .get(worker_id)
+            .map(|worker| worker.frame_id.clone())
+            .ok_or_else(|| JugglerError::Protocol(format!("unknown worker '{worker_id}'")))?;
+        self.connection
+            .send_command(
+                Some(&self.session_id),
+                "Page.sendMessageToWorker",
+                serde_json::json!({
+                    "frameId": frame_id,
+                    "workerId": worker_id,
+                    "message": message,
+                }),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await?;
+        Ok(())
+    }
+
     // -- Local storage -----------------------------------------------------------
 
     /// Captures local storage entries for the current origin.
@@ -809,4 +1118,34 @@ fn str_field(params: &Value, key: &str) -> Option<String> {
 
 fn str_field_opt(params: &Value, key: &str) -> Option<String> {
     str_field(params, key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn decodes_file_chooser_events() {
+        let (context_id, object_id) =
+            decode_file_chooser(&json!({
+                "executionContextId": "ctx-1",
+                "element": { "type": "object", "subtype": "node", "objectId": "obj-9", "className": "HTMLInputElement" },
+            }))
+            .unwrap();
+        assert_eq!(context_id, "ctx-1");
+        assert_eq!(object_id, "obj-9");
+
+        // Missing objectId → ignored.
+        assert!(decode_file_chooser(&json!({
+            "executionContextId": "ctx-1",
+            "element": { "type": "object" },
+        }))
+        .is_none());
+        // Missing context → ignored.
+        assert!(decode_file_chooser(&json!({
+            "element": { "objectId": "obj-9" },
+        }))
+        .is_none());
+    }
 }

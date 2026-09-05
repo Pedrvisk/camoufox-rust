@@ -14,8 +14,9 @@
 //!   the credentials-aware proxy configuration
 //! - [`JugglerPage`] navigates, evaluates JS, screenshots, captures
 //!   cookies/local storage, dispatches input events (mouse, keyboard,
-//!   touch, wheel), exposes network events, intercepts requests and
-//!   injects WebSocket frames
+//!   touch, wheel), exposes network events, intercepts requests and file
+//!   choosers, injects WebSocket frames, streams screencasts and tracks
+//!   web workers
 //! - [`verify_fingerprint`] asserts the running browser's spoofed surfaces
 //!   match the generated fingerprint
 //! - [`Orchestrator`] runs a pool of persona-driven browser sessions with
@@ -74,8 +75,10 @@ pub mod network;
 pub mod orchestrator;
 pub mod page;
 pub mod protocol;
+pub mod screencast;
 pub mod transport;
 pub mod verify;
+pub mod worker;
 
 pub use browser::JugglerBrowser;
 pub use connection::{Connection, DEFAULT_COMMAND_TIMEOUT};
@@ -92,5 +95,7 @@ pub use network::{
     WebSocketFrame, WebSocketInfo,
 };
 pub use orchestrator::{OrchestratedSession, Orchestrator, OrchestratorOptions};
-pub use page::{Dialog, JugglerPage};
+pub use page::{Dialog, FileChooser, JugglerPage};
+pub use screencast::{ScreencastFrame, ScreencastFrames};
 pub use verify::{verify_fingerprint, SurfaceCheck, VerificationReport};
+pub use worker::{WorkerEvent, WorkerEvents, WorkerInfo};

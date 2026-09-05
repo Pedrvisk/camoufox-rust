@@ -290,6 +290,57 @@ for (url, state) in page.live_websockets().await? {
 }
 ```
 
+### Screencast
+
+```rust
+// Subscribe before starting so no frame is missed.
+let mut frames = page.screencast_frames();
+page.start_screencast(1280, 720, 90).await?;
+
+while let Some(frame) = frames.next().await {
+    // frame.data: JPEG bytes; frame.device_width/height; frame.timestamp
+    std::fs::write("frame.jpg", &frame.data)?;
+    break; // one frame is enough for this demo
+}
+page.stop_screencast().await?;
+```
+
+### File chooser interception
+
+```rust
+page.set_intercept_file_chooser(true).await?;
+
+// Trigger a click on the <input type=file> element…
+page.click(50.0, 120.0).await?;
+
+// …then feed files instead of the OS dialog.
+let chooser = page.wait_for_file_chooser(Duration::from_secs(5)).await?;
+chooser.set_files(&["C:\\uploads\\avatar.png"]).await?;
+```
+
+### Workers
+
+```rust
+use camoufox_juggler::WorkerEvent;
+
+let mut events = page.worker_events();
+page.goto("https://example.com/app-with-workers").await?;
+
+while let Some(event) = events.next().await {
+    match event {
+        WorkerEvent::Created(info) => {
+            println!("worker created: {} ({})", info.worker_id, info.url);
+        }
+        WorkerEvent::Message { worker_id, message } => {
+            println!("worker {worker_id} says: {message}");
+        }
+        WorkerEvent::Destroyed { worker_id } => {
+            println!("worker destroyed: {worker_id}");
+        }
+    }
+}
+```
+
 ## Authenticated proxies
 
 Firefox ignores credentials in `--proxy-server`. Two native paths make
@@ -396,9 +447,25 @@ Implemented in this release:
     `page.send_websocket_message(url, text)` (or `send_websocket_binary`)
     sends client→server frames as the page, and `page.live_websockets()`
     lists open sockets with their readyState
+15. **Screencast streaming** — `page.start_screencast(width, height,
+    quality)` starts JPEG frame capture; `page.screencast_frames()`
+    delivers decoded frames (with device dimensions and timestamps),
+    auto-acked through `Page.screencastFrameAck` so capture keeps flowing
+16. **File chooser interception** — `page.set_intercept_file_chooser(true)`
+    intercepts `<input type=file>` clicks; `page.wait_for_file_chooser()`
+    returns a `FileChooser` handle whose `set_files(&[paths])` feeds
+    absolute local paths into the input (`Page.setFileInputFiles`)
+17. **Worker messaging** — `page.workers()` lists live web workers,
+    `page.worker_events()` streams created/destroyed/message events
+    (workers are torn down when their frame navigates), and
+    `page.send_message_to_worker(id, msg)` tunnels messages through
+    `Page.sendMessageToWorker` (the channel Playwright uses to drive a
+    full Juggler session inside workers; payloads are conventionally JSON
+    strings)
 
 Ideas for future releases:
 
-- Screencast (Page.startScreencast / screencastFrame streaming)
-- File chooser interception (`Page.setInterceptFileChooserDialog`)
-- Worker messaging (`Page.sendMessageToWorker`)
+- Touch/pointer emulation refinements (`Browser.setTouchOverride`)
+- Emulated media & color scheme (`Page.setEmulatedMedia`)
+- Context-level overrides (geolocation, locale, timezone via
+  `Browser.*Override`)
