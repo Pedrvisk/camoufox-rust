@@ -16,8 +16,10 @@
 //! semantics on top of any provider: `get_or_generate` returns the stored
 //! identity for a seed, generating and persisting it on first use.
 
+mod profileblob;
 mod provider;
 
+pub use provider::open_blob_store;
 pub use provider::{
     default_spec, default_sqlite_path, default_store_dir, open, FileStore, MemoryStore,
     ProviderSpec, StorageProvider, DEFAULT_STORE_SPEC_ENV,
@@ -33,6 +35,7 @@ pub use provider::SqliteStore;
 mod persona_store;
 
 pub use persona_store::PersonaStore;
+pub use profileblob::ProfileBlobStore;
 
 mod session;
 

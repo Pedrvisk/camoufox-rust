@@ -23,6 +23,7 @@ pub mod locale;
 pub mod mappings;
 pub mod os;
 pub mod persona;
+pub mod profile_snapshot;
 pub mod rotation;
 
 pub use config::{
@@ -41,4 +42,5 @@ pub use os::{host_os, os_name_from_str, supported_os_from_str, OsName, Supported
 pub use persona::{
     PersonaCookie, PersonaLocalStorage, PersonaRecord, PersonaSummary, SessionSnapshot,
 };
+pub use profile_snapshot::{restore_profile, snapshot_profile, ProfileFile};
 pub use rotation::{RotationContext, RotationDecision, RotationPolicy, RotationState};

@@ -52,7 +52,6 @@ unsafe impl Send for SendHandle {}
 #[cfg(windows)]
 unsafe impl Sync for SendHandle {}
 
-
 /// A spawned browser process with the small API the driver needs:
 /// [`BrowserProcess::id`], [`BrowserProcess::try_wait`],
 /// [`BrowserProcess::wait`], [`BrowserProcess::kill`] plus taking the

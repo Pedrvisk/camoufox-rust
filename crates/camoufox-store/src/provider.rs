@@ -346,6 +346,7 @@ impl StorageProvider for MemoryStore {
 pub struct FileStore {
     personas_dir: PathBuf,
     sessions_dir: PathBuf,
+    profiles_dir: PathBuf,
 }
 
 impl FileStore {
@@ -354,12 +355,14 @@ impl FileStore {
         let root = dir.as_ref().to_path_buf();
         let personas_dir = root.join("personas");
         let sessions_dir = root.join("sessions");
-        for dir in [&personas_dir, &sessions_dir] {
+        let profiles_dir = root.join("profiles");
+        for dir in [&personas_dir, &sessions_dir, &profiles_dir] {
             let _ = std::fs::create_dir_all(dir);
         }
         Self {
             personas_dir,
             sessions_dir,
+            profiles_dir,
         }
     }
 
@@ -505,6 +508,12 @@ mod sqlite_impl {
             created_at INTEGER NOT NULL,
             data       TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS profile_files (
+            owner TEXT NOT NULL,
+            path  TEXT NOT NULL,
+            data  BLOB NOT NULL,
+            PRIMARY KEY (owner, path)
+        );
     ";
 
     /// SQLite-backed provider (bundled SQLite; no server needed).
@@ -530,7 +539,7 @@ mod sqlite_impl {
             })
         }
 
-        fn with_conn<T>(
+        pub(crate) fn with_conn<T>(
             &self,
             context: &str,
             f: impl FnOnce(&Connection) -> rusqlite::Result<T>,
@@ -654,7 +663,7 @@ mod mysql_impl {
 
     /// MySQL-backed provider for shared persona stores.
     pub struct MySqlStore {
-        pool: MySqlPool,
+        pub(crate) pool: MySqlPool,
         dsn: String,
         schema_ready: AtomicBool,
     }
@@ -671,6 +680,12 @@ mod mysql_impl {
             persona_id VARCHAR(128) PRIMARY KEY,
             created_at BIGINT UNSIGNED NOT NULL,
             data       LONGTEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS profile_files (
+            owner VARCHAR(128) NOT NULL,
+            path  VARCHAR(512) NOT NULL,
+            data  LONGBLOB NOT NULL,
+            PRIMARY KEY (owner, path)
         );
     ";
 
@@ -696,7 +711,7 @@ mod mysql_impl {
             }
         }
 
-        async fn ensure_schema(&self) -> Result<()> {
+        pub(crate) async fn ensure_schema(&self) -> Result<()> {
             if self.schema_ready.load(Ordering::Relaxed) {
                 return Ok(());
             }
@@ -1250,5 +1265,224 @@ mod tests {
         }
         assert!(ProviderSpec::parse("weird").is_err());
         assert!(ProviderSpec::parse("mysql:").is_err());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Profile blobs (virtual profiles)
+// ---------------------------------------------------------------------------
+
+use crate::profileblob::{ensure_relative, sanitize_owner, ProfileBlobStore};
+use camoufox_core::profile_snapshot::ProfileFile;
+
+/// Builds a profile-blob store from a spec.
+///
+/// Same spec formats as [`open`]; blobs are unsupported on the memory and
+/// S3 providers (use file/sqlite/mysql).
+pub async fn open_blob_store(spec: &str) -> Result<Box<dyn ProfileBlobStore>> {
+    match ProviderSpec::parse(spec)? {
+        ProviderSpec::File(dir) => Ok(Box::new(FileStore::new(dir))),
+        #[cfg(feature = "sqlite")]
+        ProviderSpec::Sqlite(path) => Ok(Box::new(SqliteStore::open(&path)?)),
+        #[cfg(not(feature = "sqlite"))]
+        ProviderSpec::Sqlite(_) => Err(CamoufoxError::Storage(
+            "sqlite blob store requires the `sqlite` feature".into(),
+        )),
+        #[cfg(feature = "mysql")]
+        ProviderSpec::Mysql(dsn) => {
+            let store = MySqlStore::connect(&dsn).await?;
+            Ok(Box::new(store))
+        }
+        #[cfg(not(feature = "mysql"))]
+        ProviderSpec::Mysql(_) => Err(CamoufoxError::Storage(
+            "mysql blob store requires the `mysql` feature".into(),
+        )),
+        ProviderSpec::Memory => Err(CamoufoxError::Storage(
+            "profile blobs are not supported by the memory provider".into(),
+        )),
+        ProviderSpec::S3 { .. } => Err(CamoufoxError::Storage(
+            "profile blobs are not supported by the S3 provider yet".into(),
+        )),
+        ProviderSpec::Custom(_) => Err(CamoufoxError::Storage(
+            "profile blobs are not supported by custom providers".into(),
+        )),
+    }
+}
+
+#[async_trait]
+impl ProfileBlobStore for FileStore {
+    fn name(&self) -> &'static str {
+        "file"
+    }
+
+    async fn save_profile(&self, owner: &str, files: &[ProfileFile]) -> Result<()> {
+        let dir = self.profiles_dir.join(sanitize_owner(owner));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| storage_io("create profile dir", e))?;
+        for file in files {
+            ensure_relative(&file.path)?;
+            let dest = dir.join(&file.path);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| storage_io("create profile subdir", e))?;
+            }
+            std::fs::write(&dest, &file.data).map_err(|e| storage_io("write profile file", e))?;
+        }
+        Ok(())
+    }
+
+    async fn load_profile(&self, owner: &str) -> Result<Vec<ProfileFile>> {
+        let dir = self.profiles_dir.join(sanitize_owner(owner));
+        let mut files = Vec::new();
+        collect_profile_files(&dir, &dir, &mut files)?;
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(files)
+    }
+
+    async fn delete_profile(&self, owner: &str) -> Result<bool> {
+        let dir = self.profiles_dir.join(sanitize_owner(owner));
+        if !dir.exists() {
+            return Ok(false);
+        }
+        std::fs::remove_dir_all(&dir).map_err(|e| storage_io("remove profile dir", e))?;
+        Ok(true)
+    }
+}
+
+/// Recursively collects files under `root` with `/`-separated relative paths.
+fn collect_profile_files(root: &Path, dir: &Path, files: &mut Vec<ProfileFile>) -> Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_profile_files(root, &path, files)?;
+            continue;
+        }
+        let rel = match path.strip_prefix(root) {
+            Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+        if let Ok(data) = std::fs::read(&path) {
+            files.push(ProfileFile { path: rel, data });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sqlite")]
+mod sqlite_blobs {
+    use super::*;
+    use crate::profileblob::ProfileBlobStore;
+
+    #[async_trait]
+    impl ProfileBlobStore for SqliteStore {
+        fn name(&self) -> &'static str {
+            "sqlite"
+        }
+
+        async fn save_profile(&self, owner: &str, files: &[ProfileFile]) -> Result<()> {
+            self.with_conn("delete profile files", |conn| {
+                conn.execute(
+                    "DELETE FROM profile_files WHERE owner = ?1",
+                    rusqlite::params![owner],
+                )
+                .map(|_| ())
+            })?;
+            for file in files {
+                self.with_conn("insert profile file", |conn| {
+                    conn.execute(
+                        "INSERT INTO profile_files (owner, path, data) VALUES (?1, ?2, ?3)",
+                        rusqlite::params![owner, file.path, file.data],
+                    )
+                    .map(|_| ())
+                })?;
+            }
+            Ok(())
+        }
+
+        async fn load_profile(&self, owner: &str) -> Result<Vec<ProfileFile>> {
+            self.with_conn("load profile files", |conn| {
+                let mut statement = conn.prepare(
+                    "SELECT path, data FROM profile_files WHERE owner = ?1 ORDER BY path",
+                )?;
+                let rows = statement.query_map(rusqlite::params![owner], |row| {
+                    Ok(ProfileFile {
+                        path: row.get(0)?,
+                        data: row.get(1)?,
+                    })
+                })?;
+                rows.collect()
+            })
+        }
+
+        async fn delete_profile(&self, owner: &str) -> Result<bool> {
+            self.with_conn("delete profile files", |conn| {
+                conn.execute(
+                    "DELETE FROM profile_files WHERE owner = ?1",
+                    rusqlite::params![owner],
+                )
+                .map(|deleted| deleted > 0)
+            })
+        }
+    }
+}
+
+#[cfg(feature = "mysql")]
+mod mysql_blobs {
+    use super::*;
+    use crate::profileblob::ProfileBlobStore;
+
+    #[async_trait]
+    impl ProfileBlobStore for MySqlStore {
+        fn name(&self) -> &'static str {
+            "mysql"
+        }
+
+        async fn save_profile(&self, owner: &str, files: &[ProfileFile]) -> Result<()> {
+            self.ensure_schema().await?;
+            sqlx::query("DELETE FROM profile_files WHERE owner = ?")
+                .bind(owner)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| storage_io("delete profile files (mysql)", e))?;
+            for file in files {
+                sqlx::query("INSERT INTO profile_files (owner, path, data) VALUES (?, ?, ?)")
+                    .bind(owner)
+                    .bind(&file.path)
+                    .bind(&file.data)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| storage_io("insert profile file (mysql)", e))?;
+            }
+            Ok(())
+        }
+
+        async fn load_profile(&self, owner: &str) -> Result<Vec<ProfileFile>> {
+            self.ensure_schema().await?;
+            let rows: Vec<(String, Vec<u8>)> = sqlx::query_as(
+                "SELECT path, data FROM profile_files WHERE owner = ? ORDER BY path",
+            )
+            .bind(owner)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| storage_io("load profile files (mysql)", e))?;
+            Ok(rows
+                .into_iter()
+                .map(|(path, data)| ProfileFile { path, data })
+                .collect())
+        }
+
+        async fn delete_profile(&self, owner: &str) -> Result<bool> {
+            self.ensure_schema().await?;
+            let result = sqlx::query("DELETE FROM profile_files WHERE owner = ?")
+                .bind(owner)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| storage_io("delete profile files (mysql)", e))?;
+            Ok(result.rows_affected() > 0)
+        }
     }
 }
