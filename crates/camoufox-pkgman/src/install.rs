@@ -20,7 +20,7 @@ pub async fn webdl(
     url: &str,
     desc: &str,
     show_progress: bool,
-    mut sink: Option<&mut dyn Write>,
+    mut sink: Option<&mut (dyn Write + Send)>,
     retries: u32,
 ) -> Result<Vec<u8>> {
     let client = reqwest::Client::builder()

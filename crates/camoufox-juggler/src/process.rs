@@ -47,6 +47,11 @@ struct SendHandle(windows_sys::Win32::Foundation::HANDLE);
 #[cfg(windows)]
 unsafe impl Send for SendHandle {}
 
+// A process HANDLE is just a kernel value; WaitForSingleObject/TerminateProcess
+// are safe to call from any thread.
+#[cfg(windows)]
+unsafe impl Sync for SendHandle {}
+
 // Um HANDLE de processo é apenas um valor do kernel; operações como
 // WaitForSingleObject/TerminateProcess são seguras de qualquer thread.
 unsafe impl Sync for SendHandle {}
