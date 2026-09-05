@@ -31,6 +31,10 @@ struct PageState {
     dialogs: Mutex<HashMap<String, Dialog>>,
     /// Whether the target was detached.
     detached: AtomicBool,
+    /// Broadcast senders for `network_events()` subscribers.
+    network_broadcast: Mutex<Vec<tokio::sync::mpsc::UnboundedSender<crate::protocol::Event>>>,
+    /// Whether request interception is enabled.
+    interception: AtomicBool,
 }
 
 /// An open JS dialog (alert/confirm/prompt/beforeunload).
@@ -107,6 +111,15 @@ impl JugglerPage {
     }
 
     fn handle_event(&self, event: crate::protocol::Event) {
+        // Network events are forwarded to subscribers, not page state.
+        if event.method.starts_with("Network.") {
+            let mut senders = self.state.network_broadcast.lock().unwrap();
+            senders.retain(|sender| {
+                let _ = sender.send(event.clone());
+                !sender.is_closed()
+            });
+            return;
+        }
         let seq = self.state.seq.fetch_add(1, Ordering::Relaxed) + 1;
         let params = &event.params;
         match event.method.as_str() {
@@ -618,13 +631,57 @@ impl JugglerPage {
         Ok(())
     }
 
+    // -- Network -------------------------------------------------------------------
+
+    /// Subscribes to this page's network events.
+    ///
+    /// Each [`NetworkEvent`] is delivered in order; interception requests
+    /// (requests with `is_intercepted`) can be decided through
+    /// [`JugglerPage::take_intercepted_request`].
+    pub fn network_events(&self) -> crate::network::NetworkEvents {
+        // A second subscriber would steal the page session's event stream,
+        // so events are re-broadcast by the existing pump instead: we
+        // subscribe through a dedicated channel fed from the pump loop.
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.state.network_broadcast.lock().unwrap().push(tx);
+        crate::network::NetworkEvents::new(rx)
+    }
+
+    /// Enables or disables request interception on this page.
+    ///
+    /// While enabled, requests surface as `Network.requestWillBeSent` with
+    /// `is_intercepted: true` and block until
+    /// [`InterceptedRequest::continue_request`], [`InterceptedRequest::fulfill`]
+    /// or [`InterceptedRequest::abort`] answers them (the browser applies a
+    /// default continue after the handle is dropped).
+    pub async fn set_request_interception(&self, enabled: bool) -> Result<()> {
+        crate::network::set_request_interception(&self.connection, &self.session_id, enabled)
+            .await?;
+        self.state.interception.store(enabled, Ordering::Release);
+        Ok(())
+    }
+
+    /// Builds an [`InterceptedRequest`] handle for a pending intercepted
+    /// request observed through [`JugglerPage::network_events`].
+    pub fn take_intercepted_request(&self, request: &crate::network::NetworkRequest) -> Arc<crate::network::InterceptedRequest> {
+        Arc::new(crate::network::InterceptedRequest::new(
+            self.connection.clone(),
+            self.session_id.clone(),
+            request.clone(),
+        ))
+    }
+
+    /// Fetches the response body of a finished request.
+    pub async fn response_body(&self, request_id: &str) -> Result<Vec<u8>> {
+        crate::network::get_response_body(&self.connection, &self.session_id, request_id).await
+    }
+
     // -- Local storage -----------------------------------------------------------
 
     /// Captures local storage entries for the current origin.
     pub async fn local_storage(
         &self,
-    ) -> Result<Option<(String, std::collections::BTreeMap<String, String>)>> {
-        let value = self
+    ) -> Result<Option<(String, std::collections::BTreeMap<String, String>)>> {        let value = self
             .evaluate(
                 "(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { \
                   const k = localStorage.key(i); o[k] = localStorage.getItem(k); } \

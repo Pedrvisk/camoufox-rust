@@ -13,6 +13,7 @@
 //! - [`config`]: the `ConfigMap` with validation, seeding and `CAMOU_CONFIG_*` chunking
 //! - [`locale`]: statistical locale selection from embedded CLDR territory data
 //! - [`persona`]: the persisted-identity data model (personas + session snapshots)
+//! - [`rotation`]: persona rotation policies (per-domain, time-based, usage-based)
 
 pub mod config;
 pub mod env_utils;
@@ -22,6 +23,7 @@ pub mod locale;
 pub mod mappings;
 pub mod os;
 pub mod persona;
+pub mod rotation;
 
 pub use config::{
     get_env_vars, is_domain_set, load_properties, merge_into, set_into, spoofs_window_dimensions,
@@ -38,4 +40,7 @@ pub use locale::{
 pub use os::{host_os, os_name_from_str, supported_os_from_str, OsName, SupportedOs, SUPPORTED_OS};
 pub use persona::{
     PersonaCookie, PersonaLocalStorage, PersonaRecord, PersonaSummary, SessionSnapshot,
+};
+pub use rotation::{
+    RotationContext, RotationDecision, RotationPolicy, RotationState,
 };

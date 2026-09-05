@@ -141,6 +141,51 @@ let options = LaunchOptions {
 };
 ```
 
+### Network events & request interception
+
+```rust
+use camoufox_juggler::NetworkEvent;
+
+// Observe traffic
+let mut events = page.network_events();
+
+// Intercept: block ad domains, pass everything else through
+page.set_request_interception(true).await?;
+while let Some(event) = events.next().await? {
+    if let NetworkEvent::RequestWillBeSent(request) = event {
+        if request.is_intercepted {
+            if request.url.contains("ads.example") {
+                page.take_intercepted_request(&request).abort().await?;
+            } else {
+                let route = page.take_intercepted_request(&request);
+                route.continue_request(Default::default()).await?;
+            }
+        }
+    }
+}
+```
+
+### Persona rotation policies
+
+```rust
+use camoufox_core::rotation::{RotationContext, RotationPolicy, RotationState};
+
+let policy = RotationPolicy::Any {
+    policies: vec![
+        RotationPolicy::PerDomain,                       // sticky per-site identity
+        RotationPolicy::TimeBased { max_age_secs: 86400 }, // rotate daily
+        RotationPolicy::UsageBased { max_uses: 100 },     // …or after 100 launches
+    ],
+};
+let decision = policy.decide(&RotationContext {
+    current: current_persona.as_ref(),
+    pool: &personas,
+    state: &rotation_state,
+    domain: Some("example.com"),
+    persona_domains: &domain_assignments,
+});
+```
+
 ## Authenticated proxies
 
 Firefox ignores credentials in `--proxy-server`. Two native paths make
@@ -180,7 +225,8 @@ installed — run `camoufox fetch` first.
 
 ## Notes
 
-- The Juggler pipe transport is Unix-only for now.
+- The Juggler pipe transport works on Unix (FDs 3/4) and Windows
+  (`PW_PIPE_READ`/`PW_PIPE_WRITE` inheritable handles).
 - Firefox caps cookie expiry at ~400 days; session restore clamps far-future
   cookies to stay under the cap.
 - With a persistent profile (`persistent_profile`), pages run in the default
@@ -192,7 +238,7 @@ installed — run `camoufox fetch` first.
 Implemented in this release:
 
 1. **Native Juggler/CDP driver** — `camoufox-juggler` speaks Firefox's
-   Juggler protocol over its pipe transport (NUL-delimited JSON on FDs 3/4),
+   Juggler protocol over its pipe transport (NUL-delimited JSON),
    closing the automation loop with zero Playwright dependency
 2. **Fingerprint injection verification** — `camoufox verify` /
    `verify_fingerprint` asserts the running browser's `navigator.userAgent`,
@@ -207,9 +253,23 @@ Implemented in this release:
 5. **Fingerprint cache** — personas persisted keyed by seed through
    pluggable storage providers (file / SQLite / MySQL / S3 / custom),
    enabling stable personas across runs
+6. **Windows support for the Juggler pipe transport** — the transport now
+   creates inheritable anonymous pipes and passes them through the
+   `PW_PIPE_READ`/`PW_PIPE_WRITE` environment variables (the mechanism
+   Firefox's Juggler patch expects on Windows), so `launch_with_juggler`
+   works on Windows as well as Unix
+7. **Network events & request interception** — `page.network_events()`
+   streams typed `Network.*` events (requests, responses, failures,
+   timings) and `page.set_request_interception(true)` routes requests
+   through `InterceptedRequest` handles: continue (with URL/method/
+   header/body overrides), fulfill (synthetic responses) or abort
+8. **Persona rotation policies** — `camoufox_core::rotation` decides when
+   to move to a fresh identity: per-domain (sticky site↔persona binding,
+   fresh persona per new site), time-based (max persona age) and
+   usage-based (max launches per persona), combinable with `Any`
 
 Ideas for future releases:
 
-- Windows support for the Juggler pipe transport
-- Request interception and network event APIs surfaced in `JugglerPage`
-- Persona rotation policies (per-domain, time-based)
+- WebSocket support in `JugglerPage`
+- HAR export from captured network events
+- Multi-browser orchestration (persona pools + rotation state persistence)

@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MPL-2.0"
@@ -27,14 +27,14 @@ keywords = ["camoufox", "antidetect", "fingerprint", "browser", "automation"]
 categories = ["web-programming", "asynchronous"]
 
 [workspace.dependencies]
-camoufox-core = { path = "crates/camoufox-core", version = "0.1.0" }
-camoufox-pkgman = { path = "crates/camoufox-pkgman", version = "0.1.0" }
-camoufox-geoip = { path = "crates/camoufox-geoip", version = "0.1.0" }
-camoufox-webgl = { path = "crates/camoufox-webgl", version = "0.1.0" }
-camoufox-virtdisplay = { path = "crates/camoufox-virtdisplay", version = "0.1.0" }
-camoufox-store = { path = "crates/camoufox-store", version = "0.1.0" }
-camoufox-juggler = { path = "crates/camoufox-juggler", version = "0.1.0" }
-camoufox = { path = "crates/camoufox", version = "0.1.0" }
+camoufox-core = { path = "crates/camoufox-core", version = "0.2.0" }
+camoufox-pkgman = { path = "crates/camoufox-pkgman", version = "0.2.0" }
+camoufox-geoip = { path = "crates/camoufox-geoip", version = "0.2.0" }
+camoufox-webgl = { path = "crates/camoufox-webgl", version = "0.2.0" }
+camoufox-virtdisplay = { path = "crates/camoufox-virtdisplay", version = "0.2.0" }
+camoufox-store = { path = "crates/camoufox-store", version = "0.2.0" }
+camoufox-juggler = { path = "crates/camoufox-juggler", version = "0.2.0" }
+camoufox = { path = "crates/camoufox", version = "0.2.0" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "fs", "sync", "io-util"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }

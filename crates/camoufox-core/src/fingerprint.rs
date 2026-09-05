@@ -249,7 +249,7 @@ pub fn generate_fingerprint(request: &FingerprintRequest) -> Result<BrowserProfi
         let browser_exhausted = attempt >= MAX_BROWSER_ATTEMPTS as u64;
         let screen_exhausted = attempt >= MAX_SCREEN_ATTEMPTS as u64;
 
-        if (header_resolved && fits) || (browser_exhausted && fits) || screen_exhausted {
+        if (header_resolved || browser_exhausted) && fits || screen_exhausted {
             if !header_resolved {
                 // Retry budget exhausted without a Firefox header resolution:
                 // synthesize one so the profile is always Firefox-coherent.

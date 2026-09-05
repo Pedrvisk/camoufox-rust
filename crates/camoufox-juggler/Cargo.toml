@@ -26,6 +26,13 @@ base64 = "0.22"
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Pipes",
+] }
+
 [dev-dependencies]
 tempfile.workspace = true
 env_logger.workspace = true
