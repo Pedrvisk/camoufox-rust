@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "camoufox-core",
  "camoufox-geoip",
@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox-cli"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "camoufox",
  "camoufox-core",
@@ -248,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "log",
  "quick-xml",
@@ -262,7 +262,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox-geoip"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "camoufox-core",
  "camoufox-pkgman",
@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox-juggler"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "base64",
  "camoufox",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox-pkgman"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "camoufox-core",
  "dirs",
@@ -315,7 +315,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox-store"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -334,7 +334,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox-virtdisplay"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "camoufox-core",
  "log",
@@ -345,7 +345,7 @@ dependencies = [
 
 [[package]]
 name = "camoufox-webgl"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "camoufox-core",
  "rand 0.8.8",
