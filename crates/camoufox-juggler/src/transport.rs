@@ -311,7 +311,7 @@ async fn spawn_windows(
     }
 
     let file = |handle: HANDLE| {
-        let file = std::fs::File::from_raw_handle(handle);
+        let file = unsafe { std::fs::File::from_raw_handle(handle) };
         tokio::fs::File::from(file)
     };
 

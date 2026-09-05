@@ -137,14 +137,17 @@ impl BrowserProcess {
 
     /// Waits for the process to exit.
     pub async fn wait(&mut self) -> io::Result<ExitStatus> {
-        let handle = SendHandle(self.inner.process.0);
+        // HANDLEs are raw pointers (not `Send`); pass the value as a
+        // plain integer so the closure only captures a `usize`.
+        let raw = self.inner.process.0 as usize;
         let waited = tokio::task::spawn_blocking(move || {
-            // Destructure the whole wrapper: edition-2021 disjoint capture
-            // would otherwise grab the raw `*mut c_void` field directly,
-            // bypassing the `Send` impl on the wrapper.
-            let SendHandle(raw) = handle;
             // WAIT_FAILED is the only failure mode; the handle is valid.
-            unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(raw, u32::MAX) }
+            unsafe {
+                windows_sys::Win32::System::Threading::WaitForSingleObject(
+                    raw as windows_sys::Win32::Foundation::HANDLE,
+                    u32::MAX,
+                )
+            }
         })
         .await
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
