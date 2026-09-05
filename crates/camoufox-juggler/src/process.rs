@@ -52,9 +52,6 @@ unsafe impl Send for SendHandle {}
 #[cfg(windows)]
 unsafe impl Sync for SendHandle {}
 
-// Um HANDLE de processo é apenas um valor do kernel; operações como
-// WaitForSingleObject/TerminateProcess são seguras de qualquer thread.
-unsafe impl Sync for SendHandle {}
 
 /// A spawned browser process with the small API the driver needs:
 /// [`BrowserProcess::id`], [`BrowserProcess::try_wait`],
