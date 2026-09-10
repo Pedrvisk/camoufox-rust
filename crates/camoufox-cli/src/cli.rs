@@ -106,6 +106,14 @@ enum Command {
         /// Restore a previously saved session before navigating.
         #[arg(long)]
         restore_session: bool,
+        /// Detect and solve Cloudflare challenges (interstitial/Turnstile)
+        /// after navigating. Enables cursor humanization and disables COOP
+        /// for the best pass rate.
+        #[arg(long)]
+        solve_cloudflare: bool,
+        /// Cloudflare solver budget in seconds (see --solve-cloudflare).
+        #[arg(long, default_value_t = 30)]
+        cf_timeout: u64,
         /// Extra time (seconds) to keep the browser open after the commands.
         #[arg(long, default_value_t = 3)]
         hold: u64,
@@ -288,6 +296,8 @@ async fn run(cli: Cli) -> Result<()> {
             har,
             save_session,
             restore_session,
+            solve_cloudflare,
+            cf_timeout,
             hold,
         } => {
             launch_command(LaunchArgs {
@@ -306,6 +316,8 @@ async fn run(cli: Cli) -> Result<()> {
                 har: har.as_deref(),
                 save_session,
                 restore_session,
+                solve_cloudflare,
+                cf_timeout,
                 hold,
             })
             .await
@@ -347,6 +359,8 @@ struct LaunchArgs<'a> {
     har: Option<&'a std::path::Path>,
     save_session: bool,
     restore_session: bool,
+    solve_cloudflare: bool,
+    cf_timeout: u64,
     hold: u64,
 }
 
@@ -367,6 +381,8 @@ async fn launch_command(args: LaunchArgs<'_>) -> Result<()> {
         har,
         save_session,
         restore_session,
+        solve_cloudflare,
+        cf_timeout,
         hold,
     } = args;
 
@@ -376,6 +392,13 @@ async fn launch_command(args: LaunchArgs<'_>) -> Result<()> {
     } else {
         HeadlessMode::Off
     };
+    if solve_cloudflare {
+        // Cursor humanization is the browser-native mechanism for
+        // Turnstile checkbox clicks; disabling COOP lets the click land
+        // inside the cross-origin challenge iframe.
+        options.humanize = Some(None);
+        options.disable_coop = true;
+    }
     if let Some(server) = proxy_server {
         options.proxy = Some(parse_proxy_server(server, proxy_username, proxy_password));
     }
@@ -442,6 +465,17 @@ async fn launch_command(args: LaunchArgs<'_>) -> Result<()> {
         .await
         .map_err(camoufox_juggler::core_error)?;
     println!("navigated to {target}");
+
+    if solve_cloudflare {
+        let cf_options = camoufox_juggler::cloudflare::CloudflareOptions {
+            timeout: std::time::Duration::from_secs(cf_timeout),
+            ..Default::default()
+        };
+        match camoufox_juggler::cloudflare::solve(&page, &cf_options).await {
+            Ok(outcome) => println!("cloudflare: {outcome}"),
+            Err(error) => eprintln!("cloudflare solver error: {error}"),
+        }
+    }
 
     if verify {
         let report = camoufox_juggler::verify_fingerprint(&page, &browser.prepared.config)

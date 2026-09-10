@@ -66,6 +66,7 @@
 
 pub mod binding;
 pub mod browser;
+pub mod cloudflare;
 pub mod connection;
 pub mod console;
 pub mod dom;
@@ -88,6 +89,7 @@ pub mod worker;
 
 pub use binding::{BindingCall, BindingCalls};
 pub use browser::JugglerBrowser;
+pub use cloudflare::{ChallengeKind, CloudflareOptions, CloudflareOutcome};
 pub use connection::{Connection, DEFAULT_COMMAND_TIMEOUT};
 pub use console::{ConsoleEvents, ConsoleLevel, ConsoleMessage};
 pub use dom::{NodeDescription, Point, Quad};

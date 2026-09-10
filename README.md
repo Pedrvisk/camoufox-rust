@@ -49,6 +49,7 @@ camoufox launch https://example.com --headless \
   [--verify] [--screenshot out.png] [--dump-html page.html] \
   [--har session.har] \
   [--save-session] [--restore-session] \
+  [--solve-cloudflare [--cf-timeout 30]] \
   [--proxy-server http://user:pass@host:port]
 
 # Verify the fingerprint injection end-to-end (exits non-zero on mismatch)
@@ -435,6 +436,45 @@ browser.clear_cache().await?;
 browser.set_cache_disabled(None, true).await?;
 ```
 
+## Cloudflare challenges
+
+`camoufox_juggler::cloudflare` detects Cloudflare challenges (the
+"Just a moment..." interstitial and embedded Turnstile widgets) and gets
+through them: managed interstitials usually clear on their own once the
+fingerprint passes the passive checks, and interactive challenges get
+their Turnstile checkbox clicked with a humanized cursor.
+
+```rust
+use camoufox_juggler::cloudflare::{solve, CloudflareOptions, CloudflareOutcome};
+use std::time::Duration;
+
+let options = CloudflareOptions {
+    timeout: Duration::from_secs(45),
+    ..Default::default()
+};
+match solve(&page, &options).await? {
+    CloudflareOutcome::Cleared { .. } => println!("through"),
+    CloudflareOutcome::TimedOut { .. } => println!("blocked"),
+    CloudflareOutcome::NoChallenge => println!("clean page"),
+}
+```
+
+From the CLI:
+
+```bash
+camoufox launch https://protected.example --solve-cloudflare --cf-timeout 45
+```
+
+`--solve-cloudflare` enables cursor humanization and disables COOP for
+the best pass rate. Notes:
+
+- Headful runs (or `HeadlessMode::Virtual` on Linux) pass noticeably
+  more often than plain headless; Turnstile is known to silently fail
+  inside Docker containers.
+- Widgets rendered inside shadow DOM are not covered.
+- Success is never guaranteed — Cloudflare adapts. The solver never
+  fabricates tokens; it only waits and clicks as a human would.
+
 ## Authenticated proxies
 
 Firefox ignores credentials in `--proxy-server`. Two native paths make
@@ -601,6 +641,12 @@ Implemented in this release:
     (`Browser.setExtraHTTPHeaders` / `Network.setExtraHTTPHeaders`),
     plus `browser.clear_cache()` and `browser.set_cache_disabled(ctx,
     disabled)`
+27. **Cloudflare challenge solving** — `camoufox_juggler::cloudflare`
+    detects interstitial and Turnstile challenges from main-frame
+    markers, waits for automatic fingerprint clearance, and clicks the
+    Turnstile checkbox with a bezier humanized cursor (viewport-
+    coordinate mouse events, no cross-origin frame access); the CLI's
+    `camoufox launch --solve-cloudflare` wires it end-to-end
 
 Ideas for future releases:
 

@@ -23,6 +23,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 log.workspace = true
 futures-util.workspace = true
+rand.workspace = true
 base64 = "0.22"
 
 [target.'cfg(unix)'.dependencies]
