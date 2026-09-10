@@ -24,6 +24,9 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// `Launch` legitimately carries the full launch-option set; this enum is
+// built once at startup, so the extra bytes never matter in practice.
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Download/update the Camoufox binaries, GeoIP database and addons.
     Fetch,
